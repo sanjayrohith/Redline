@@ -5,22 +5,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/sanjayrohith/redline/internal/config"
+	"github.com/sanjayrohith/redline/internal/logging"
 )
 
 // App holds every dependency the gateway needs to serve traffic and owns
 // the HTTP server's start/stop lifecycle.
 type App struct {
 	server *http.Server
+	logger *slog.Logger
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
 func New(cfg *config.Config) *App {
 	mux := http.NewServeMux()
+	logger := logging.New(cfg.LogLevel)
 
 	return &App{
 		server: &http.Server{
@@ -28,6 +32,7 @@ func New(cfg *config.Config) *App {
 			Handler:           mux,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
+		logger: logger,
 	}
 }
 
@@ -48,10 +53,14 @@ func (a *App) Run(ctx context.Context) error {
 		serveErr <- nil
 	}()
 
+	a.logger.Info("gateway listening", "addr", a.server.Addr)
+
 	select {
 	case err := <-serveErr:
 		return err
 	case <-ctx.Done():
+		a.logger.Info("shutdown signal received")
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
