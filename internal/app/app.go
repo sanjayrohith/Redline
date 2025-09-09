@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/sanjayrohith/redline/internal/config"
 )
 
 // App holds every dependency the gateway needs to serve traffic and owns
@@ -17,12 +19,12 @@ type App struct {
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
-func New(addr string) *App {
+func New(cfg *config.Config) *App {
 	mux := http.NewServeMux()
 
 	return &App{
 		server: &http.Server{
-			Addr:              addr,
+			Addr:              cfg.ListenAddr,
 			Handler:           mux,
 			ReadHeaderTimeout: 5 * time.Second,
 		},

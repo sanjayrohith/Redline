@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/sanjayrohith/redline/internal/app"
+	"github.com/sanjayrohith/redline/internal/config"
 )
 
 func main() {
@@ -22,6 +23,18 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	a := app.New(":8080")
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return err
+	}
+
+	a := app.New(cfg)
 	return a.Run(ctx)
+}
+
+func configPath() string {
+	if path := os.Getenv("REDLINE_CONFIG_FILE"); path != "" {
+		return path
+	}
+	return "config.yaml"
 }
