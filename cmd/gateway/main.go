@@ -28,7 +28,12 @@ func run() error {
 		return err
 	}
 
-	a := app.New(cfg)
+	a, err := app.New(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer a.Close()
+
 	return a.Run(ctx)
 }
 

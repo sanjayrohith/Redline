@@ -11,12 +11,19 @@ import (
 
 func TestAppConstructsServesAndShutsDownCleanly(t *testing.T) {
 	cfg := &config.Config{
-		ListenAddr:  "127.0.0.1:0",
-		Environment: "test",
-		LogLevel:    "error",
+		ListenAddr:       "127.0.0.1:0",
+		Environment:      "test",
+		LogLevel:         "error",
+		DatabaseURL:      "postgres://test/db",
+		DBMaxConns:       5,
+		DBConnectTimeout: time.Second,
 	}
 
-	a := New(cfg)
+	a, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer a.Close()
 
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {

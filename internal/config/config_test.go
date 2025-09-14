@@ -8,6 +8,8 @@ import (
 
 func TestLoad(t *testing.T) {
 	t.Run("defaults with no file", func(t *testing.T) {
+		t.Setenv("REDLINE_DATABASE_URL", "postgres://test/db")
+
 		cfg, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
@@ -19,7 +21,7 @@ func TestLoad(t *testing.T) {
 
 	t.Run("yaml file overrides defaults", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte("listen_addr: :9090\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("listen_addr: :9090\ndatabase_url: postgres://test/db\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		cfg, err := Load(path)
@@ -33,7 +35,7 @@ func TestLoad(t *testing.T) {
 
 	t.Run("env overrides yaml file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte("listen_addr: :9090\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("listen_addr: :9090\ndatabase_url: postgres://test/db\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("REDLINE_LISTEN_ADDR", ":7070")
@@ -49,11 +51,21 @@ func TestLoad(t *testing.T) {
 
 	t.Run("fails fast on missing required key", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte("listen_addr: \"\"\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("listen_addr: \"\"\ndatabase_url: postgres://test/db\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(path); err == nil {
 			t.Fatal("Load() error = nil, want error for empty listen_addr")
+		}
+	})
+
+	t.Run("fails fast on missing database url", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("environment: test\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil {
+			t.Fatal("Load() error = nil, want error for empty database_url")
 		}
 	})
 }

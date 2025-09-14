@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sanjayrohith/redline/internal/config"
+	"github.com/sanjayrohith/redline/internal/db"
 	"github.com/sanjayrohith/redline/internal/logging"
 )
 
@@ -19,12 +20,20 @@ import (
 type App struct {
 	server *http.Server
 	logger *slog.Logger
+	dbPool *db.Pool
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
-func New(cfg *config.Config) *App {
+// Database connections are established lazily, so a currently-unreachable
+// database does not prevent construction; only a malformed DSN does.
+func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	mux := http.NewServeMux()
 	logger := logging.New(cfg.LogLevel)
+
+	dbPool, err := db.NewPool(ctx, cfg.DatabaseURL, cfg.DBMaxConns, cfg.DBConnectTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
 
 	return &App{
 		server: &http.Server{
@@ -33,7 +42,13 @@ func New(cfg *config.Config) *App {
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 		logger: logger,
-	}
+		dbPool: dbPool,
+	}, nil
+}
+
+// Close releases resources held by the App, such as the database pool.
+func (a *App) Close() {
+	a.dbPool.Close()
 }
 
 // Run starts the HTTP server and blocks until ctx is cancelled, at which
