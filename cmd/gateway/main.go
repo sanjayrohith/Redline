@@ -34,6 +34,10 @@ func run() error {
 	}
 	defer a.Close()
 
+	if err := a.Migrate(ctx); err != nil {
+		return err
+	}
+
 	return a.Run(ctx)
 }
 

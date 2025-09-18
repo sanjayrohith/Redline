@@ -12,6 +12,7 @@ import (
 
 	"github.com/sanjayrohith/redline/internal/config"
 	"github.com/sanjayrohith/redline/internal/db"
+	"github.com/sanjayrohith/redline/internal/db/migrations"
 	"github.com/sanjayrohith/redline/internal/logging"
 )
 
@@ -49,6 +50,23 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 // Close releases resources held by the App, such as the database pool.
 func (a *App) Close() {
 	a.dbPool.Close()
+}
+
+// Migrate applies every pending database migration, guarded by a Postgres
+// advisory lock so concurrent gateway replicas cannot race each other.
+func (a *App) Migrate(ctx context.Context) error {
+	pending, err := db.LoadMigrations(migrations.FS)
+	if err != nil {
+		return fmt.Errorf("app: load migrations: %w", err)
+	}
+
+	applied, err := db.NewMigrator(a.dbPool).Migrate(ctx, pending)
+	if err != nil {
+		return fmt.Errorf("app: apply migrations: %w", err)
+	}
+
+	a.logger.Info("migrations applied", "versions", applied)
+	return nil
 }
 
 // Run starts the HTTP server and blocks until ctx is cancelled, at which
