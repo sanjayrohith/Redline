@@ -21,6 +21,12 @@ type Config struct {
 	DatabaseURL      string        `yaml:"database_url"`
 	DBMaxConns       int32         `yaml:"db_max_conns"`
 	DBConnectTimeout time.Duration `yaml:"db_connect_timeout"`
+
+	JWTSigningKey   string        `yaml:"jwt_signing_key"`
+	JWTIssuer       string        `yaml:"jwt_issuer"`
+	JWTAudience     string        `yaml:"jwt_audience"`
+	AccessTokenTTL  time.Duration `yaml:"access_token_ttl"`
+	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
 }
 
 func defaults() Config {
@@ -31,6 +37,11 @@ func defaults() Config {
 
 		DBMaxConns:       10,
 		DBConnectTimeout: 5 * time.Second,
+
+		JWTIssuer:       "redline",
+		JWTAudience:     "redline-api",
+		AccessTokenTTL:  15 * time.Minute,
+		RefreshTokenTTL: 30 * 24 * time.Hour,
 	}
 }
 
@@ -81,6 +92,9 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.DBMaxConns = int32(n)
 		}
 	}
+	if v := os.Getenv("REDLINE_JWT_SIGNING_KEY"); v != "" {
+		cfg.JWTSigningKey = v
+	}
 }
 
 func (c Config) validate() error {
@@ -97,6 +111,9 @@ func (c Config) validate() error {
 	}
 	if c.DatabaseURL == "" {
 		missing = append(missing, "database_url")
+	}
+	if c.JWTSigningKey == "" {
+		missing = append(missing, "jwt_signing_key")
 	}
 
 	if len(missing) > 0 {

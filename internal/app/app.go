@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sanjayrohith/redline/internal/auth"
 	"github.com/sanjayrohith/redline/internal/config"
 	"github.com/sanjayrohith/redline/internal/db"
 	"github.com/sanjayrohith/redline/internal/db/migrations"
@@ -19,10 +20,11 @@ import (
 // App holds every dependency the gateway needs to serve traffic and owns
 // the HTTP server's start/stop lifecycle.
 type App struct {
-	server *http.Server
-	logger *slog.Logger
-	dbPool *db.Pool
-	repos  *db.Repositories
+	server   *http.Server
+	logger   *slog.Logger
+	dbPool   *db.Pool
+	repos    *db.Repositories
+	sessions *auth.SessionIssuer
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
@@ -37,15 +39,25 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("app: %w", err)
 	}
 
+	repos := db.NewRepositories(dbPool)
+	sessions := auth.NewSessionIssuer(auth.SessionConfig{
+		SigningKey:      []byte(cfg.JWTSigningKey),
+		Issuer:          cfg.JWTIssuer,
+		Audience:        cfg.JWTAudience,
+		AccessTokenTTL:  cfg.AccessTokenTTL,
+		RefreshTokenTTL: cfg.RefreshTokenTTL,
+	}, repos.RefreshTokens)
+
 	return &App{
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,
 			Handler:           mux,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-		logger: logger,
-		dbPool: dbPool,
-		repos:  db.NewRepositories(dbPool),
+		logger:   logger,
+		dbPool:   dbPool,
+		repos:    repos,
+		sessions: sessions,
 	}, nil
 }
 
