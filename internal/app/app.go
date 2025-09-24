@@ -22,6 +22,7 @@ type App struct {
 	server *http.Server
 	logger *slog.Logger
 	dbPool *db.Pool
+	repos  *db.Repositories
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
@@ -44,6 +45,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		},
 		logger: logger,
 		dbPool: dbPool,
+		repos:  db.NewRepositories(dbPool),
 	}, nil
 }
 
