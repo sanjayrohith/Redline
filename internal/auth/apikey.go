@@ -52,17 +52,22 @@ func GenerateAPIKey() (*GeneratedKey, error) {
 
 	plaintext := keyPrefix + base64.RawURLEncoding.EncodeToString(raw)
 
-	displayPrefix := plaintext
-	if cut := len(keyPrefix) + displayPrefixChars; len(displayPrefix) > cut {
-		displayPrefix = plaintext[:cut]
-	}
-
 	hash, err := hashKey(plaintext)
 	if err != nil {
 		return nil, err
 	}
 
-	return &GeneratedKey{Plaintext: plaintext, DisplayPrefix: displayPrefix, Hash: hash}, nil
+	return &GeneratedKey{Plaintext: plaintext, DisplayPrefix: DisplayPrefix(plaintext), Hash: hash}, nil
+}
+
+// DisplayPrefix returns the leading slice of an API key that is safe to
+// store and show back to a user after creation, without revealing the
+// full credential.
+func DisplayPrefix(plaintext string) string {
+	if cut := len(keyPrefix) + displayPrefixChars; len(plaintext) > cut {
+		return plaintext[:cut]
+	}
+	return plaintext
 }
 
 func hashKey(plaintext string) (string, error) {
