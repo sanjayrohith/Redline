@@ -16,6 +16,7 @@ import (
 	"github.com/sanjayrohith/redline/internal/db/migrations"
 	"github.com/sanjayrohith/redline/internal/logging"
 	"github.com/sanjayrohith/redline/internal/redisclient"
+	"github.com/sanjayrohith/redline/internal/router"
 )
 
 // App holds every dependency the gateway needs to serve traffic and owns
@@ -27,14 +28,20 @@ type App struct {
 	redis    *redisclient.Client
 	repos    *db.Repositories
 	sessions *auth.SessionIssuer
+	router   *router.Router
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
 // Database connections are established lazily, so a currently-unreachable
 // database does not prevent construction; only a malformed DSN does.
 func New(ctx context.Context, cfg *config.Config) (*App, error) {
-	mux := http.NewServeMux()
 	logger := logging.New(cfg.LogLevel)
+
+	rt := router.New(router.Config{
+		Logger:      logger,
+		Timeout:     cfg.RequestTimeout,
+		CORSOrigins: cfg.CORSAllowedOrigins,
+	})
 
 	dbPool, err := db.NewPool(ctx, cfg.DatabaseURL, cfg.DBMaxConns, cfg.DBConnectTimeout)
 	if err != nil {
@@ -62,7 +69,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	return &App{
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,
-			Handler:           mux,
+			Handler:           rt.Handler,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 		logger:   logger,
@@ -70,6 +77,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		redis:    redisClient,
 		repos:    repos,
 		sessions: sessions,
+		router:   rt,
 	}, nil
 }
 

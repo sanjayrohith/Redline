@@ -34,6 +34,9 @@ type Config struct {
 	RedisPoolSize    int           `yaml:"redis_pool_size"`
 	RedisMaxRetries  int           `yaml:"redis_max_retries"`
 	RedisDialTimeout time.Duration `yaml:"redis_dial_timeout"`
+
+	RequestTimeout     time.Duration `yaml:"request_timeout"`
+	CORSAllowedOrigins []string      `yaml:"cors_allowed_origins"`
 }
 
 func defaults() Config {
@@ -53,6 +56,8 @@ func defaults() Config {
 		RedisPoolSize:    10,
 		RedisMaxRetries:  3,
 		RedisDialTimeout: 5 * time.Second,
+
+		RequestTimeout: 30 * time.Second,
 	}
 }
 
