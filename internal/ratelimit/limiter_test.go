@@ -2,6 +2,8 @@ package ratelimit_test
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -147,5 +149,62 @@ func TestLimiter_IndependentKeysDoNotInterfere(t *testing.T) {
 	}
 	if !second.Allowed {
 		t.Fatal("independent key should not be affected by key-a's usage")
+	}
+}
+
+// TestLimiter_ConcurrentRequestsRespectExactLimit drives many goroutines at
+// the same key simultaneously and asserts the Lua script's atomicity holds
+// under real contention: exactly limit requests are allowed, never more,
+// never fewer due to a lost update.
+func TestLimiter_ConcurrentRequestsRespectExactLimit(t *testing.T) {
+	client := newTestClient(t)
+	limiter := ratelimit.NewLimiter(client)
+	ctx := context.Background()
+
+	const (
+		limit       = 20
+		concurrency = 100
+	)
+	window := 10 * time.Second
+	key := "test:concurrent-exact-limit"
+
+	var (
+		wg      sync.WaitGroup
+		allowed atomic.Int64
+		denied  atomic.Int64
+		errs    atomic.Int64
+	)
+
+	start := make(chan struct{})
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+
+			decision, err := limiter.Allow(ctx, key, limit, window)
+			if err != nil {
+				errs.Add(1)
+				return
+			}
+			if decision.Allowed {
+				allowed.Add(1)
+			} else {
+				denied.Add(1)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if got := errs.Load(); got != 0 {
+		t.Fatalf("errs = %d, want 0", got)
+	}
+	if got := allowed.Load(); got != limit {
+		t.Errorf("allowed = %d, want exactly %d", got, limit)
+	}
+	if got := denied.Load(); got != concurrency-limit {
+		t.Errorf("denied = %d, want exactly %d", got, concurrency-limit)
 	}
 }
