@@ -27,6 +27,13 @@ type Config struct {
 	JWTAudience     string        `yaml:"jwt_audience"`
 	AccessTokenTTL  time.Duration `yaml:"access_token_ttl"`
 	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
+
+	RedisAddr        string        `yaml:"redis_addr"`
+	RedisPassword    string        `yaml:"redis_password"`
+	RedisDB          int           `yaml:"redis_db"`
+	RedisPoolSize    int           `yaml:"redis_pool_size"`
+	RedisMaxRetries  int           `yaml:"redis_max_retries"`
+	RedisDialTimeout time.Duration `yaml:"redis_dial_timeout"`
 }
 
 func defaults() Config {
@@ -42,6 +49,10 @@ func defaults() Config {
 		JWTAudience:     "redline-api",
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 30 * 24 * time.Hour,
+
+		RedisPoolSize:    10,
+		RedisMaxRetries:  3,
+		RedisDialTimeout: 5 * time.Second,
 	}
 }
 
@@ -95,6 +106,12 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("REDLINE_JWT_SIGNING_KEY"); v != "" {
 		cfg.JWTSigningKey = v
 	}
+	if v := os.Getenv("REDLINE_REDIS_ADDR"); v != "" {
+		cfg.RedisAddr = v
+	}
+	if v := os.Getenv("REDLINE_REDIS_PASSWORD"); v != "" {
+		cfg.RedisPassword = v
+	}
 }
 
 func (c Config) validate() error {
@@ -114,6 +131,9 @@ func (c Config) validate() error {
 	}
 	if c.JWTSigningKey == "" {
 		missing = append(missing, "jwt_signing_key")
+	}
+	if c.RedisAddr == "" {
+		missing = append(missing, "redis_addr")
 	}
 
 	if len(missing) > 0 {

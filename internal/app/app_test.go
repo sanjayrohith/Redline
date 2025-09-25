@@ -17,6 +17,7 @@ func TestAppConstructsServesAndShutsDownCleanly(t *testing.T) {
 		DatabaseURL:      "postgres://test/db",
 		DBMaxConns:       5,
 		DBConnectTimeout: time.Second,
+		RedisAddr:        "127.0.0.1:0",
 	}
 
 	a, err := New(context.Background(), cfg)

@@ -15,6 +15,7 @@ import (
 	"github.com/sanjayrohith/redline/internal/db"
 	"github.com/sanjayrohith/redline/internal/db/migrations"
 	"github.com/sanjayrohith/redline/internal/logging"
+	"github.com/sanjayrohith/redline/internal/redisclient"
 )
 
 // App holds every dependency the gateway needs to serve traffic and owns
@@ -23,6 +24,7 @@ type App struct {
 	server   *http.Server
 	logger   *slog.Logger
 	dbPool   *db.Pool
+	redis    *redisclient.Client
 	repos    *db.Repositories
 	sessions *auth.SessionIssuer
 }
@@ -38,6 +40,15 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
+
+	redisClient := redisclient.NewClient(redisclient.Options{
+		Addr:        cfg.RedisAddr,
+		Password:    cfg.RedisPassword,
+		DB:          cfg.RedisDB,
+		PoolSize:    cfg.RedisPoolSize,
+		MaxRetries:  cfg.RedisMaxRetries,
+		DialTimeout: cfg.RedisDialTimeout,
+	})
 
 	repos := db.NewRepositories(dbPool)
 	sessions := auth.NewSessionIssuer(auth.SessionConfig{
@@ -56,14 +67,17 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		},
 		logger:   logger,
 		dbPool:   dbPool,
+		redis:    redisClient,
 		repos:    repos,
 		sessions: sessions,
 	}, nil
 }
 
-// Close releases resources held by the App, such as the database pool.
+// Close releases resources held by the App, such as the database pool and
+// the Redis client.
 func (a *App) Close() {
 	a.dbPool.Close()
+	_ = a.redis.Close()
 }
 
 // Migrate applies every pending database migration, guarded by a Postgres
