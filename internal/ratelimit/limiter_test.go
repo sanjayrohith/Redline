@@ -1,0 +1,151 @@
+package ratelimit_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
+
+	"github.com/sanjayrohith/redline/internal/ratelimit"
+	"github.com/sanjayrohith/redline/internal/redisclient"
+)
+
+func newTestClient(t *testing.T) *redisclient.Client {
+	t.Helper()
+
+	ctx := context.Background()
+	container, err := tcredis.Run(ctx, "redis:7-alpine")
+	if err != nil {
+		t.Skipf("skipping integration test: could not start redis container: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := container.Terminate(context.Background()); err != nil {
+			t.Logf("terminate redis container: %v", err)
+		}
+	})
+
+	uri, err := container.ConnectionString(ctx)
+	if err != nil {
+		t.Fatalf("connection string: %v", err)
+	}
+
+	addr := uri
+	const schemePrefix = "redis://"
+	if len(addr) > len(schemePrefix) && addr[:len(schemePrefix)] == schemePrefix {
+		addr = addr[len(schemePrefix):]
+	}
+
+	client := redisclient.NewClient(redisclient.Options{
+		Addr:        addr,
+		PoolSize:    10,
+		MaxRetries:  3,
+		DialTimeout: 5 * time.Second,
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	deadline := time.Now().Add(15 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		lastErr = client.HealthCheck(checkCtx)
+		cancel()
+		if lastErr == nil {
+			return client
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("redis never became healthy: %v", lastErr)
+	return nil
+}
+
+func TestLimiter_AllowsWithinLimitThenRejects(t *testing.T) {
+	client := newTestClient(t)
+	limiter := ratelimit.NewLimiter(client)
+	ctx := context.Background()
+
+	key := "test:allow-then-reject"
+	const limit = 3
+	window := time.Second
+
+	for i := 0; i < limit; i++ {
+		decision, err := limiter.Allow(ctx, key, limit, window)
+		if err != nil {
+			t.Fatalf("Allow() error = %v", err)
+		}
+		if !decision.Allowed {
+			t.Fatalf("request %d: Allowed = false, want true", i)
+		}
+	}
+
+	decision, err := limiter.Allow(ctx, key, limit, window)
+	if err != nil {
+		t.Fatalf("Allow() error = %v", err)
+	}
+	if decision.Allowed {
+		t.Fatal("Allowed = true, want false once limit is exceeded")
+	}
+	if decision.RetryAfter <= 0 {
+		t.Errorf("RetryAfter = %v, want > 0", decision.RetryAfter)
+	}
+}
+
+func TestLimiter_WindowSlidesOpenAgain(t *testing.T) {
+	client := newTestClient(t)
+	limiter := ratelimit.NewLimiter(client)
+	ctx := context.Background()
+
+	key := "test:window-slides"
+	const limit = 1
+	window := 300 * time.Millisecond
+
+	first, err := limiter.Allow(ctx, key, limit, window)
+	if err != nil {
+		t.Fatalf("Allow() error = %v", err)
+	}
+	if !first.Allowed {
+		t.Fatal("first request should be allowed")
+	}
+
+	blocked, err := limiter.Allow(ctx, key, limit, window)
+	if err != nil {
+		t.Fatalf("Allow() error = %v", err)
+	}
+	if blocked.Allowed {
+		t.Fatal("second immediate request should be blocked")
+	}
+
+	time.Sleep(window + 100*time.Millisecond)
+
+	after, err := limiter.Allow(ctx, key, limit, window)
+	if err != nil {
+		t.Fatalf("Allow() error = %v", err)
+	}
+	if !after.Allowed {
+		t.Fatal("request after the window elapsed should be allowed")
+	}
+}
+
+func TestLimiter_IndependentKeysDoNotInterfere(t *testing.T) {
+	client := newTestClient(t)
+	limiter := ratelimit.NewLimiter(client)
+	ctx := context.Background()
+
+	window := time.Second
+
+	first, err := limiter.Allow(ctx, "test:key-a", 1, window)
+	if err != nil {
+		t.Fatalf("Allow() error = %v", err)
+	}
+	if !first.Allowed {
+		t.Fatal("first key should be allowed")
+	}
+
+	second, err := limiter.Allow(ctx, "test:key-b", 1, window)
+	if err != nil {
+		t.Fatalf("Allow() error = %v", err)
+	}
+	if !second.Allowed {
+		t.Fatal("independent key should not be affected by key-a's usage")
+	}
+}
