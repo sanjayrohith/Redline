@@ -3,10 +3,10 @@ package httpmw
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/sanjayrohith/redline/internal/apierror"
 	"github.com/sanjayrohith/redline/internal/auth"
 	"github.com/sanjayrohith/redline/internal/db"
 )
@@ -50,24 +50,24 @@ func APIKeyAuth(keys APIKeyLookup) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			candidate, ok := bearerToken(r)
 			if !ok {
-				unauthorized(w)
+				unauthorized(w, r)
 				return
 			}
 
 			record, err := keys.GetByPrefix(r.Context(), auth.DisplayPrefix(candidate))
 			if err != nil {
-				unauthorized(w)
+				unauthorized(w, r)
 				return
 			}
 
 			if record.RevokedAt != nil {
-				unauthorized(w)
+				unauthorized(w, r)
 				return
 			}
 
 			valid, err := auth.VerifyAPIKey(candidate, record.KeyHash)
 			if err != nil || !valid {
-				unauthorized(w)
+				unauthorized(w, r)
 				return
 			}
 
@@ -97,8 +97,7 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, true
 }
 
-func unauthorized(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+func unauthorized(w http.ResponseWriter, r *http.Request) {
+	requestID, _ := RequestIDFromContext(r.Context())
+	apierror.Write(w, http.StatusUnauthorized, apierror.CodeUnauthorized, "unauthorized", requestID)
 }

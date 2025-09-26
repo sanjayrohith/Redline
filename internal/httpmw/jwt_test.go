@@ -1,6 +1,7 @@
 package httpmw
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,6 +9,19 @@ import (
 
 	"github.com/sanjayrohith/redline/internal/auth"
 )
+
+func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	return body.Error.Code
+}
 
 func testSessionConfig() auth.SessionConfig {
 	return auth.SessionConfig{
@@ -56,8 +70,8 @@ func TestJWTAuth_RejectsMissingToken(t *testing.T) {
 	if principal != nil {
 		t.Error("principal should not be attached")
 	}
-	if got := rec.Body.String(); got != `{"error":"missing_token"}`+"\n" {
-		t.Errorf("body = %q", got)
+	if got := errorCode(t, rec); got != "unauthorized" {
+		t.Errorf("error.code = %q, want unauthorized", got)
 	}
 }
 
@@ -69,8 +83,8 @@ func TestJWTAuth_RejectsMalformedToken(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
-	if got := rec.Body.String(); got != `{"error":"invalid_token"}`+"\n" {
-		t.Errorf("body = %q, want invalid_token", got)
+	if got := errorCode(t, rec); got != "invalid_token" {
+		t.Errorf("error.code = %q, want invalid_token", got)
 	}
 }
 
@@ -86,8 +100,8 @@ func TestJWTAuth_RejectsExpiredToken(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
-	if got := rec.Body.String(); got != `{"error":"token_expired"}`+"\n" {
-		t.Errorf("body = %q, want token_expired", got)
+	if got := errorCode(t, rec); got != "token_expired" {
+		t.Errorf("error.code = %q, want token_expired", got)
 	}
 }
 

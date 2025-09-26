@@ -39,8 +39,8 @@ func TestRequireScope_RejectsMissingScope(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rec.Code)
 	}
-	if got := rec.Body.String(); got != `{"error":"forbidden"}`+"\n" {
-		t.Errorf("body = %q", got)
+	if got := errorCode(t, rec); got != "forbidden" {
+		t.Errorf("error.code = %q, want forbidden", got)
 	}
 }
 

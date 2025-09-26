@@ -1,9 +1,10 @@
 package httpmw
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"github.com/sanjayrohith/redline/internal/apierror"
 )
 
 // Recovery catches a panic anywhere downstream, logs it, and responds with
@@ -17,10 +18,7 @@ func Recovery(logger *slog.Logger) func(http.Handler) http.Handler {
 				if rec := recover(); rec != nil {
 					requestID, _ := RequestIDFromContext(r.Context())
 					logger.Error("panic recovered", "panic", rec, "path", r.URL.Path, "request_id", requestID)
-
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusInternalServerError)
-					_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal_error"})
+					apierror.Write(w, http.StatusInternalServerError, apierror.CodeInternal, "internal server error", requestID)
 				}
 			}()
 			next.ServeHTTP(w, r)

@@ -1,8 +1,9 @@
 package httpmw
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/sanjayrohith/redline/internal/apierror"
 )
 
 // RequireScope rejects any request whose Principal (attached by APIKeyAuth)
@@ -14,7 +15,8 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			principal, ok := PrincipalFromContext(r.Context())
 			if !ok || !hasScope(principal.Scopes, scope) {
-				forbidden(w)
+				requestID, _ := RequestIDFromContext(r.Context())
+				apierror.Write(w, http.StatusForbidden, apierror.CodeForbidden, "forbidden", requestID)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -29,10 +31,4 @@ func hasScope(scopes []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func forbidden(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden"})
 }

@@ -1,12 +1,12 @@
 package httpmw
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/sanjayrohith/redline/internal/apierror"
 	"github.com/sanjayrohith/redline/internal/auth"
 )
 
@@ -19,7 +19,7 @@ func JWTAuth(cfg auth.SessionConfig) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, ok := bearerToken(r)
 			if !ok {
-				writeTokenError(w, "missing_token")
+				writeTokenError(w, r, apierror.CodeUnauthorized, "missing bearer token")
 				return
 			}
 
@@ -34,10 +34,10 @@ func JWTAuth(cfg auth.SessionConfig) func(http.Handler) http.Handler {
 
 			switch {
 			case errors.Is(err, jwt.ErrTokenExpired):
-				writeTokenError(w, "token_expired")
+				writeTokenError(w, r, apierror.CodeTokenExpired, "access token expired")
 				return
 			case err != nil, !parsed.Valid:
-				writeTokenError(w, "invalid_token")
+				writeTokenError(w, r, apierror.CodeInvalidToken, "invalid access token")
 				return
 			}
 
@@ -47,8 +47,7 @@ func JWTAuth(cfg auth.SessionConfig) func(http.Handler) http.Handler {
 	}
 }
 
-func writeTokenError(w http.ResponseWriter, code string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
+func writeTokenError(w http.ResponseWriter, r *http.Request, code apierror.Code, message string) {
+	requestID, _ := RequestIDFromContext(r.Context())
+	apierror.Write(w, http.StatusUnauthorized, code, message, requestID)
 }

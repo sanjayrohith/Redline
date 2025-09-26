@@ -2,6 +2,7 @@ package httpmw
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -123,7 +124,15 @@ func assertUniform401(t *testing.T, rec *httptest.ResponseRecorder, principal *P
 	if principal != nil {
 		t.Error("principal should not be attached on a rejected request")
 	}
-	if got := rec.Body.String(); got != `{"error":"unauthorized"}`+"\n" {
-		t.Errorf("body = %q, want the uniform unauthorized envelope", got)
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if body.Error.Code != "unauthorized" {
+		t.Errorf("error.code = %q, want unauthorized", body.Error.Code)
 	}
 }

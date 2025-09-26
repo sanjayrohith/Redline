@@ -50,8 +50,8 @@ func TestRateLimit_RejectsOverLimitWithRetryAfter(t *testing.T) {
 	if got := rec.Header().Get("Retry-After"); got != "3" {
 		t.Errorf("Retry-After = %q, want 3", got)
 	}
-	if got := rec.Body.String(); got != `{"error":"rate_limited"}`+"\n" {
-		t.Errorf("body = %q", got)
+	if got := errorCode(t, rec); got != "rate_limited" {
+		t.Errorf("error.code = %q, want rate_limited", got)
 	}
 }
 

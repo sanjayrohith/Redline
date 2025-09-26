@@ -2,12 +2,12 @@ package httpmw
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/sanjayrohith/redline/internal/apierror"
 	"github.com/sanjayrohith/redline/internal/ratelimit"
 )
 
@@ -32,9 +32,8 @@ func RateLimit(limiter RateLimiter, limit int, window time.Duration, keyFunc fun
 
 			if !decision.Allowed {
 				w.Header().Set("Retry-After", strconv.Itoa(max(1, int(decision.RetryAfter.Seconds()+0.5))))
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "rate_limited"})
+				requestID, _ := RequestIDFromContext(r.Context())
+				apierror.Write(w, http.StatusTooManyRequests, apierror.CodeRateLimited, "rate limit exceeded", requestID)
 				return
 			}
 
