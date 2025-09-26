@@ -14,6 +14,7 @@ import (
 	"github.com/sanjayrohith/redline/internal/config"
 	"github.com/sanjayrohith/redline/internal/db"
 	"github.com/sanjayrohith/redline/internal/db/migrations"
+	"github.com/sanjayrohith/redline/internal/health"
 	"github.com/sanjayrohith/redline/internal/logging"
 	"github.com/sanjayrohith/redline/internal/redisclient"
 	"github.com/sanjayrohith/redline/internal/router"
@@ -65,6 +66,12 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		AccessTokenTTL:  cfg.AccessTokenTTL,
 		RefreshTokenTTL: cfg.RefreshTokenTTL,
 	}, repos.RefreshTokens)
+
+	rt.Mux.HandleFunc("GET /healthz", health.LivenessHandler)
+	rt.Mux.HandleFunc("GET /readyz", health.ReadinessHandler(health.NewAggregator(
+		health.Check{Name: "postgres", Fn: dbPool.HealthCheck},
+		health.Check{Name: "redis", Fn: redisClient.HealthCheck},
+	)))
 
 	return &App{
 		server: &http.Server{
