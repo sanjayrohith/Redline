@@ -86,6 +86,8 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	)
 	rt.Mux.Handle("POST /v1/chat/completions", chatHandler)
 
+	rt.Mux.Handle("GET /v1/models", httpmw.APIKeyAuth(repos.APIKeys)(api.ModelsHandler(repos.Models)))
+
 	return &App{
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,
