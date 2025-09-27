@@ -37,6 +37,10 @@ type Config struct {
 
 	RequestTimeout     time.Duration `yaml:"request_timeout"`
 	CORSAllowedOrigins []string      `yaml:"cors_allowed_origins"`
+
+	ChatRateLimit         int           `yaml:"chat_rate_limit"`
+	ChatRateLimitWindow   time.Duration `yaml:"chat_rate_limit_window"`
+	MockBackendTokenDelay time.Duration `yaml:"mock_backend_token_delay"`
 }
 
 func defaults() Config {
@@ -58,6 +62,9 @@ func defaults() Config {
 		RedisDialTimeout: 5 * time.Second,
 
 		RequestTimeout: 30 * time.Second,
+
+		ChatRateLimit:       60,
+		ChatRateLimitWindow: time.Minute,
 	}
 }
 

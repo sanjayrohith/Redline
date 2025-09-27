@@ -10,12 +10,16 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sanjayrohith/redline/internal/api"
 	"github.com/sanjayrohith/redline/internal/auth"
 	"github.com/sanjayrohith/redline/internal/config"
 	"github.com/sanjayrohith/redline/internal/db"
 	"github.com/sanjayrohith/redline/internal/db/migrations"
 	"github.com/sanjayrohith/redline/internal/health"
+	"github.com/sanjayrohith/redline/internal/httpmw"
+	"github.com/sanjayrohith/redline/internal/inference"
 	"github.com/sanjayrohith/redline/internal/logging"
+	"github.com/sanjayrohith/redline/internal/ratelimit"
 	"github.com/sanjayrohith/redline/internal/redisclient"
 	"github.com/sanjayrohith/redline/internal/router"
 )
@@ -72,6 +76,15 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		health.Check{Name: "postgres", Fn: dbPool.HealthCheck},
 		health.Check{Name: "redis", Fn: redisClient.HealthCheck},
 	)))
+
+	backend := inference.NewMockBackend(cfg.MockBackendTokenDelay)
+	limiter := ratelimit.NewLimiter(redisClient)
+	chatHandler := httpmw.APIKeyAuth(repos.APIKeys)(
+		httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("chat"))(
+			api.ChatCompletionsHandler(backend),
+		),
+	)
+	rt.Mux.Handle("POST /v1/chat/completions", chatHandler)
 
 	return &App{
 		server: &http.Server{
