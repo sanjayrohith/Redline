@@ -113,6 +113,20 @@ func (a *App) Close() {
 	_ = a.redis.Close()
 }
 
+// Handler returns the fully wired HTTP handler - middleware chain and all
+// registered routes - without binding a network listener. It exists so
+// end-to-end tests can drive the real request path via httptest.
+func (a *App) Handler() http.Handler {
+	return a.server.Handler
+}
+
+// Repositories returns the App's typed repository layer, so tests can seed
+// fixtures (users, API keys) directly against the same database the
+// handler under test will query.
+func (a *App) Repositories() *db.Repositories {
+	return a.repos
+}
+
 // Migrate applies every pending database migration, guarded by a Postgres
 // advisory lock so concurrent gateway replicas cannot race each other.
 func (a *App) Migrate(ctx context.Context) error {
