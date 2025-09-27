@@ -81,7 +81,10 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	limiter := ratelimit.NewLimiter(redisClient)
 	chatHandler := httpmw.APIKeyAuth(repos.APIKeys)(
 		httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("chat"))(
-			api.ChatCompletionsHandler(backend),
+			api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
+				MaxSequenceLength: cfg.MaxSequenceLength,
+				GenerationTimeout: cfg.GenerationTimeout,
+			}),
 		),
 	)
 	rt.Mux.Handle("POST /v1/chat/completions", chatHandler)

@@ -1,8 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sanjayrohith/redline/internal/apierror"
@@ -10,11 +14,21 @@ import (
 	"github.com/sanjayrohith/redline/internal/inference"
 )
 
+// ChatCompletionsLimits bounds the resources one completion request may
+// consume: the total sequence length (prompt plus requested completion
+// tokens) accepted before dispatch, and the hard wall-clock deadline
+// placed on the generation call itself.
+type ChatCompletionsLimits struct {
+	MaxSequenceLength int
+	GenerationTimeout time.Duration
+}
+
 // ChatCompletionsHandler wires the OpenAI-compatible non-streaming
-// /v1/chat/completions endpoint against backend: decode, validate, run
-// the completion, and render a spec-shaped response. Authentication and
-// rate limiting are applied by middleware around this handler, not here.
-func ChatCompletionsHandler(backend inference.Backend) http.HandlerFunc {
+// /v1/chat/completions endpoint against backend: decode, validate, enforce
+// limits, run the completion under a hard deadline, and render a
+// spec-shaped response. Authentication and rate limiting are applied by
+// middleware around this handler, not here.
+func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLimits) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		requestID, _ := httpmw.RequestIDFromContext(r.Context())
 
@@ -29,8 +43,28 @@ func ChatCompletionsHandler(backend inference.Backend) http.HandlerFunc {
 			return
 		}
 
-		result, err := backend.Complete(r.Context(), toBackendRequest(requestID, req))
+		if limits.MaxSequenceLength > 0 {
+			if sequenceLength := estimatedSequenceLength(req); sequenceLength > limits.MaxSequenceLength {
+				apierror.Write(w, http.StatusUnprocessableEntity, apierror.CodeValidation,
+					fmt.Sprintf("request sequence length %d exceeds the maximum of %d tokens", sequenceLength, limits.MaxSequenceLength),
+					requestID)
+				return
+			}
+		}
+
+		genCtx := r.Context()
+		if limits.GenerationTimeout > 0 {
+			var cancel context.CancelFunc
+			genCtx, cancel = context.WithTimeout(genCtx, limits.GenerationTimeout)
+			defer cancel()
+		}
+
+		result, err := backend.Complete(genCtx, toBackendRequest(requestID, req))
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				apierror.Write(w, http.StatusGatewayTimeout, apierror.CodeTimeout, "generation timed out", requestID)
+				return
+			}
 			apierror.Write(w, http.StatusInternalServerError, apierror.CodeInternal, "completion failed", requestID)
 			return
 		}
@@ -56,6 +90,22 @@ func ChatCompletionsHandler(backend inference.Backend) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+// estimatedSequenceLength approximates the total context window a request
+// will consume - prompt words plus any requested completion tokens - using
+// a cheap word-count heuristic. It is deliberately conservative rather
+// than exact, since its job is to reject a request before dispatch, not to
+// bill it.
+func estimatedSequenceLength(req ChatCompletionRequest) int {
+	n := 0
+	for _, m := range req.Messages {
+		n += len(strings.Fields(m.Content))
+	}
+	if req.MaxTokens != nil {
+		n += *req.MaxTokens
+	}
+	return n
 }
 
 func toBackendRequest(requestID string, req ChatCompletionRequest) inference.CompletionRequest {

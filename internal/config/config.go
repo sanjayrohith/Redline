@@ -41,6 +41,9 @@ type Config struct {
 	ChatRateLimit         int           `yaml:"chat_rate_limit"`
 	ChatRateLimitWindow   time.Duration `yaml:"chat_rate_limit_window"`
 	MockBackendTokenDelay time.Duration `yaml:"mock_backend_token_delay"`
+
+	MaxSequenceLength int           `yaml:"max_sequence_length"`
+	GenerationTimeout time.Duration `yaml:"generation_timeout"`
 }
 
 func defaults() Config {
@@ -65,6 +68,9 @@ func defaults() Config {
 
 		ChatRateLimit:       60,
 		ChatRateLimitWindow: time.Minute,
+
+		MaxSequenceLength: 8192,
+		GenerationTimeout: 60 * time.Second,
 	}
 }
 
