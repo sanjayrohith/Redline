@@ -97,3 +97,36 @@ func TestFetchManifest_ServerError(t *testing.T) {
 		t.Fatal("FetchManifest() error = nil, want error for 500")
 	}
 }
+
+func TestFetchConfig_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model_type":"llama","architectures":["LlamaForCausalLM"]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(WithBaseURL(server.URL))
+	cfg, err := client.FetchConfig(context.Background(), Reference{Owner: "org", Name: "model", Revision: "main"})
+	if err != nil {
+		t.Fatalf("FetchConfig() error = %v", err)
+	}
+	if cfg.ModelType != "llama" || len(cfg.Architectures) != 1 || cfg.Architectures[0] != "LlamaForCausalLM" {
+		t.Errorf("cfg = %+v", cfg)
+	}
+}
+
+func TestFetchConfig_MissingIsNotAnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(WithBaseURL(server.URL))
+	cfg, err := client.FetchConfig(context.Background(), Reference{Owner: "org", Name: "model", Revision: "main"})
+	if err != nil {
+		t.Fatalf("FetchConfig() error = %v, want nil for a missing config.json", err)
+	}
+	if cfg != nil {
+		t.Errorf("cfg = %+v, want nil", cfg)
+	}
+}

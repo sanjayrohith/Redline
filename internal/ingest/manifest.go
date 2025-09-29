@@ -84,6 +84,23 @@ func (c *Client) FetchManifest(ctx context.Context, ref Reference) (*Manifest, e
 	return &Manifest{RevisionSHA: sha, Files: files}, nil
 }
 
+// FetchConfig fetches and decodes a repository's config.json, returning
+// nil without error if the repository has none - config.json is
+// conventional, not guaranteed, so its absence falls back to tensor-name
+// architecture inference rather than failing ingestion outright.
+func (c *Client) FetchConfig(ctx context.Context, ref Reference) (*ModelConfig, error) {
+	endpoint := fmt.Sprintf("%s/%s/resolve/%s/config.json", c.baseURL, ref.RepoID(), url.PathEscape(ref.Revision))
+
+	var cfg ModelConfig
+	if err := c.getJSON(ctx, endpoint, &cfg); err != nil {
+		if errors.Is(err, ErrRepositoryNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &cfg, nil
+}
+
 func (c *Client) fetchRevisionSHA(ctx context.Context, ref Reference) (string, error) {
 	endpoint := fmt.Sprintf("%s/api/models/%s/revision/%s", c.baseURL, ref.RepoID(), url.PathEscape(ref.Revision))
 
