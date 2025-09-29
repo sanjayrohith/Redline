@@ -2,6 +2,9 @@ package ingest
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +23,7 @@ func TestFetchHeader_DecodesTensorsAndMetadata(t *testing.T) {
 	}`
 	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(headerJSON, 1024)}
 
-	header, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", 0)
+	header, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{})
 	if err != nil {
 		t.Fatalf("FetchHeader() error = %v", err)
 	}
@@ -51,7 +54,7 @@ func TestFetchHeader_NoMetadataBlock(t *testing.T) {
 	headerJSON := `{"weight": {"dtype": "F32", "shape": [10], "data_offsets": [0, 40]}}`
 	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(headerJSON, 0)}
 
-	header, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", 0)
+	header, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{})
 	if err != nil {
 		t.Fatalf("FetchHeader() error = %v", err)
 	}
@@ -68,7 +71,7 @@ func TestFetchHeader_NeverFetchesPastTheHeader(t *testing.T) {
 	full := fakeSafetensorsFile(headerJSON, 1_000_000) // large simulated payload
 	fetcher := &boundedRangeFetcher{data: full, maxEnd: int64(8 + len(headerJSON) - 1)}
 
-	if _, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", 0); err != nil {
+	if _, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{}); err != nil {
 		t.Fatalf("FetchHeader() error = %v", err)
 	}
 }
@@ -98,7 +101,7 @@ func (*boundedFetchError) Error() string {
 func TestFetchHeader_MalformedJSON(t *testing.T) {
 	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(`not json`, 0)}
 
-	if _, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", 0); err == nil {
+	if _, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{}); err == nil {
 		t.Fatal("FetchHeader() error = nil, want error for malformed JSON")
 	}
 }
@@ -109,7 +112,83 @@ func TestFetchHeader_TruncatedHeaderBytes(t *testing.T) {
 	truncated := full[:len(full)-5] // lose the last 5 header bytes
 	fetcher := &fakeRangeFetcher{data: truncated}
 
-	if _, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", 0); err == nil {
+	if _, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{}); err == nil {
 		t.Fatal("FetchHeader() error = nil, want error for truncated header")
+	}
+}
+
+func TestFetchHeader_RejectsTooManyTensors(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i := 0; i < 5; i++ {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		fmt.Fprintf(&sb, `"t%d": {"dtype": "F32", "shape": [1], "data_offsets": [0, 4]}`, i)
+	}
+	sb.WriteString("}")
+
+	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(sb.String(), 0)}
+
+	_, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{MaxTensorCount: 3})
+	if !errors.Is(err, ErrTooManyTensors) {
+		t.Errorf("error = %v, want ErrTooManyTensors", err)
+	}
+}
+
+func TestFetchHeader_MetadataDoesNotCountTowardTensorLimit(t *testing.T) {
+	headerJSON := `{
+		"__metadata__": {"format": "pt"},
+		"weight": {"dtype": "F32", "shape": [1], "data_offsets": [0, 4]}
+	}`
+	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(headerJSON, 0)}
+
+	_, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{MaxTensorCount: 1})
+	if err != nil {
+		t.Errorf("FetchHeader() error = %v, want nil (metadata block should not count as a tensor)", err)
+	}
+}
+
+func TestFetchHeader_RejectsUnknownDtype(t *testing.T) {
+	headerJSON := `{"weight": {"dtype": "MYSTERY", "shape": [1], "data_offsets": [0, 4]}}`
+	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(headerJSON, 0)}
+
+	_, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{})
+	if !errors.Is(err, ErrInvalidTensorMetadata) {
+		t.Errorf("error = %v, want ErrInvalidTensorMetadata", err)
+	}
+}
+
+func TestFetchHeader_RejectsNegativeShapeDimension(t *testing.T) {
+	headerJSON := `{"weight": {"dtype": "F32", "shape": [-1, 10], "data_offsets": [0, 40]}}`
+	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(headerJSON, 0)}
+
+	_, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{})
+	if !errors.Is(err, ErrInvalidTensorMetadata) {
+		t.Errorf("error = %v, want ErrInvalidTensorMetadata", err)
+	}
+}
+
+func TestFetchHeader_RejectsExcessiveRank(t *testing.T) {
+	shape := make([]string, maxShapeRank+1)
+	for i := range shape {
+		shape[i] = "1"
+	}
+	headerJSON := fmt.Sprintf(`{"weight": {"dtype": "F32", "shape": [%s], "data_offsets": [0, 4]}}`, strings.Join(shape, ","))
+	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(headerJSON, 0)}
+
+	_, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{})
+	if !errors.Is(err, ErrInvalidTensorMetadata) {
+		t.Errorf("error = %v, want ErrInvalidTensorMetadata", err)
+	}
+}
+
+func TestFetchHeader_RejectsInvertedDataOffsets(t *testing.T) {
+	headerJSON := `{"weight": {"dtype": "F32", "shape": [10], "data_offsets": [40, 0]}}`
+	fetcher := &fakeRangeFetcher{data: fakeSafetensorsFile(headerJSON, 0)}
+
+	_, err := FetchHeader(context.Background(), fetcher, "https://example.com/model.safetensors", HeaderLimits{})
+	if !errors.Is(err, ErrInvalidTensorMetadata) {
+		t.Errorf("error = %v, want ErrInvalidTensorMetadata", err)
 	}
 }
