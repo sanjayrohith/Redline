@@ -129,7 +129,7 @@ func TestRepositories_RoundTrip(t *testing.T) {
 
 		m, err := repos.Models.Create(ctx, db.NewModel{
 			RepoURL: "hf://bob/model", Revision: "main", Architecture: "llama",
-			ParameterCount: 7_000_000_000, Dtype: "fp16", VRAMEstimateBytes: 14_000_000_000,
+			ParameterCount: 7_000_000_000, Dtype: "fp16", VRAMEstimateFP16Bytes: 14_000_000_000,
 		})
 		if err != nil {
 			t.Fatalf("create model: %v", err)
@@ -137,7 +137,7 @@ func TestRepositories_RoundTrip(t *testing.T) {
 
 		if _, err := repos.Models.Create(ctx, db.NewModel{
 			RepoURL: "hf://bob/model", Revision: "main", Architecture: "llama",
-			ParameterCount: 7_000_000_000, Dtype: "fp16", VRAMEstimateBytes: 14_000_000_000,
+			ParameterCount: 7_000_000_000, Dtype: "fp16", VRAMEstimateFP16Bytes: 14_000_000_000,
 		}); err != db.ErrConflict {
 			t.Errorf("duplicate model Create() error = %v, want ErrConflict", err)
 		}

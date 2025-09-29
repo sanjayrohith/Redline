@@ -24,8 +24,25 @@ func shapeElementCount(shape []int64) int64 {
 // ModelConfig is the subset of a repository's config.json this gateway
 // uses to identify architecture family.
 type ModelConfig struct {
-	ModelType     string   `json:"model_type"`
-	Architectures []string `json:"architectures"`
+	ModelType             string   `json:"model_type"`
+	Architectures         []string `json:"architectures"`
+	NumHiddenLayers       int      `json:"num_hidden_layers"`
+	NumAttentionHeads     int      `json:"num_attention_heads"`
+	NumKeyValueHeads      int      `json:"num_key_value_heads"`
+	HiddenSize            int      `json:"hidden_size"`
+	MaxPositionEmbeddings int      `json:"max_position_embeddings"`
+}
+
+// Geometry extracts the layer and attention geometry ComputeVRAMFootprint
+// needs to size a KV cache.
+func (c *ModelConfig) Geometry() ModelGeometry {
+	return ModelGeometry{
+		NumLayers:         c.NumHiddenLayers,
+		NumAttentionHeads: c.NumAttentionHeads,
+		NumKeyValueHeads:  c.NumKeyValueHeads,
+		HiddenSize:        c.HiddenSize,
+		ContextLength:     c.MaxPositionEmbeddings,
+	}
 }
 
 // tensorNamingSignatures maps a distinguishing tensor name prefix pair to
