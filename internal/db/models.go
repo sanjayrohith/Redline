@@ -7,11 +7,14 @@ import (
 
 // Model is one row of the models table. VRAM*Bytes fields are each the
 // full total (weights plus KV cache) for that precision variant;
-// KVCacheBytes is the shared KV-cache component of all three.
+// KVCacheBytes is the shared KV-cache component of all three. RevisionSHA
+// is the immutable upstream commit digest, used to deduplicate ingestion
+// even when the mutable Revision ref (e.g. "main") has since moved.
 type Model struct {
 	ID                    string
 	RepoURL               string
 	Revision              string
+	RevisionSHA           string
 	Architecture          string
 	ParameterCount        int64
 	Dtype                 string
@@ -26,6 +29,7 @@ type Model struct {
 type NewModel struct {
 	RepoURL               string
 	Revision              string
+	RevisionSHA           string
 	Architecture          string
 	ParameterCount        int64
 	Dtype                 string
@@ -45,23 +49,35 @@ func NewModelRepository(pool *Pool) *ModelRepository {
 	return &ModelRepository{pool: pool}
 }
 
-const modelColumns = `id::text, repo_url, revision, architecture, parameter_count, dtype,
+const modelColumns = `id::text, repo_url, revision, revision_sha, architecture, parameter_count, dtype,
 	vram_estimate_bytes, vram_fp8_bytes, vram_int4_bytes, kv_cache_bytes, created_at`
 
 func scanModel(row interface{ Scan(...any) error }, m *Model) error {
-	return row.Scan(&m.ID, &m.RepoURL, &m.Revision, &m.Architecture, &m.ParameterCount, &m.Dtype,
-		&m.VRAMEstimateFP16Bytes, &m.VRAMEstimateFP8Bytes, &m.VRAMEstimateInt4Bytes, &m.KVCacheBytes, &m.CreatedAt)
+	var revisionSHA *string
+	if err := row.Scan(&m.ID, &m.RepoURL, &m.Revision, &revisionSHA, &m.Architecture, &m.ParameterCount, &m.Dtype,
+		&m.VRAMEstimateFP16Bytes, &m.VRAMEstimateFP8Bytes, &m.VRAMEstimateInt4Bytes, &m.KVCacheBytes, &m.CreatedAt); err != nil {
+		return err
+	}
+	if revisionSHA != nil {
+		m.RevisionSHA = *revisionSHA
+	}
+	return nil
 }
 
 // Create registers a newly ingested model.
 func (r *ModelRepository) Create(ctx context.Context, m NewModel) (*Model, error) {
+	var revisionSHA *string
+	if m.RevisionSHA != "" {
+		revisionSHA = &m.RevisionSHA
+	}
+
 	var out Model
 	err := scanModel(r.pool.QueryRow(ctx,
-		`INSERT INTO models (repo_url, revision, architecture, parameter_count, dtype,
+		`INSERT INTO models (repo_url, revision, revision_sha, architecture, parameter_count, dtype,
 		                     vram_estimate_bytes, vram_fp8_bytes, vram_int4_bytes, kv_cache_bytes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING `+modelColumns,
-		m.RepoURL, m.Revision, m.Architecture, m.ParameterCount, m.Dtype,
+		m.RepoURL, m.Revision, revisionSHA, m.Architecture, m.ParameterCount, m.Dtype,
 		m.VRAMEstimateFP16Bytes, m.VRAMEstimateFP8Bytes, m.VRAMEstimateInt4Bytes, m.KVCacheBytes,
 	), &out)
 	if err != nil {
@@ -86,6 +102,20 @@ func (r *ModelRepository) GetByRepoRevision(ctx context.Context, repoURL, revisi
 	err := scanModel(r.pool.QueryRow(ctx,
 		`SELECT `+modelColumns+` FROM models WHERE repo_url = $1 AND revision = $2`,
 		repoURL, revision,
+	), &out)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &out, nil
+}
+
+// GetByRevisionSHA returns the model already ingested at the given
+// immutable revision digest, or ErrNotFound if none has been cached yet.
+func (r *ModelRepository) GetByRevisionSHA(ctx context.Context, revisionSHA string) (*Model, error) {
+	var out Model
+	err := scanModel(r.pool.QueryRow(ctx,
+		`SELECT `+modelColumns+` FROM models WHERE revision_sha = $1`,
+		revisionSHA,
 	), &out)
 	if err != nil {
 		return nil, mapError(err)
