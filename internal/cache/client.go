@@ -33,6 +33,7 @@ type Options struct {
 // the bucket and its lifecycle policy on construction.
 type Client struct {
 	minio    *minio.Client
+	core     *minio.Core
 	bucket   string
 	endpoint string
 }
@@ -41,15 +42,22 @@ type Client struct {
 // if it does not already exist, and applies a lifecycle policy expiring
 // objects tagged UnreferencedTagKey=true.
 func NewClient(ctx context.Context, opts Options) (*Client, error) {
-	mc, err := minio.New(opts.Endpoint, &minio.Options{
+	minioOpts := &minio.Options{
 		Creds:  credentials.NewStaticV4(opts.AccessKeyID, opts.SecretAccessKey, ""),
 		Secure: opts.UseSSL,
-	})
+	}
+
+	mc, err := minio.New(opts.Endpoint, minioOpts)
 	if err != nil {
 		return nil, fmt.Errorf("cache: create minio client: %w", err)
 	}
 
-	c := &Client{minio: mc, bucket: opts.BucketName, endpoint: opts.Endpoint}
+	core, err := minio.NewCore(opts.Endpoint, minioOpts)
+	if err != nil {
+		return nil, fmt.Errorf("cache: create minio core client: %w", err)
+	}
+
+	c := &Client{minio: mc, core: core, bucket: opts.BucketName, endpoint: opts.Endpoint}
 
 	if err := c.ensureBucket(ctx); err != nil {
 		return nil, err
