@@ -4,6 +4,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -117,4 +118,22 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 		return fmt.Errorf("cache: health check: bucket %s does not exist", c.bucket)
 	}
 	return nil
+}
+
+// RemoveObject deletes key from the artifact bucket, such as discarding an
+// upload that failed checksum verification.
+func (c *Client) RemoveObject(ctx context.Context, key string) error {
+	if err := c.minio.RemoveObject(ctx, c.bucket, key, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("cache: remove object %s: %w", key, err)
+	}
+	return nil
+}
+
+// GetObject opens a streaming reader for key. The caller must close it.
+func (c *Client) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	obj, err := c.minio.GetObject(ctx, c.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("cache: get object %s: %w", key, err)
+	}
+	return obj, nil
 }
