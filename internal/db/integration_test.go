@@ -242,4 +242,62 @@ func TestRepositories_RoundTrip(t *testing.T) {
 			t.Errorf("ListByUser() = %+v, want one revoked key", keys)
 		}
 	})
+
+	t.Run("ingestion job lifecycle", func(t *testing.T) {
+		job, err := repos.IngestionJobs.Create(ctx, "hf://org/model", "main")
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		if job.State != db.IngestionStateQueued {
+			t.Errorf("State = %q, want %q", job.State, db.IngestionStateQueued)
+		}
+
+		if err := repos.IngestionJobs.UpdateProgress(ctx, job.ID, 1000, 250); err != nil {
+			t.Fatalf("UpdateProgress() error = %v", err)
+		}
+		progressed, err := repos.IngestionJobs.GetByID(ctx, job.ID)
+		if err != nil {
+			t.Fatalf("GetByID() error = %v", err)
+		}
+		if progressed.State != db.IngestionStateDownloading || progressed.BytesDownloaded != 250 || progressed.BytesTotal != 1000 {
+			t.Errorf("progressed = %+v", progressed)
+		}
+
+		m, err := repos.Models.Create(ctx, db.NewModel{
+			RepoURL: "hf://org/model", Revision: "main", Architecture: "llama", ParameterCount: 1, Dtype: "fp16",
+		})
+		if err != nil {
+			t.Fatalf("create model: %v", err)
+		}
+
+		if err := repos.IngestionJobs.Complete(ctx, job.ID, m.ID); err != nil {
+			t.Fatalf("Complete() error = %v", err)
+		}
+		completed, err := repos.IngestionJobs.GetByID(ctx, job.ID)
+		if err != nil {
+			t.Fatalf("GetByID() error = %v", err)
+		}
+		if completed.State != db.IngestionStateCached || completed.ModelID == nil || *completed.ModelID != m.ID {
+			t.Errorf("completed = %+v", completed)
+		}
+
+		failedJob, err := repos.IngestionJobs.Create(ctx, "hf://org/other-model", "main")
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+		if err := repos.IngestionJobs.Fail(ctx, failedJob.ID, "checksum mismatch"); err != nil {
+			t.Fatalf("Fail() error = %v", err)
+		}
+		failed, err := repos.IngestionJobs.GetByID(ctx, failedJob.ID)
+		if err != nil {
+			t.Fatalf("GetByID() error = %v", err)
+		}
+		if failed.State != db.IngestionStateFailed || failed.ErrorMessage == nil || *failed.ErrorMessage != "checksum mismatch" {
+			t.Errorf("failed = %+v", failed)
+		}
+
+		if _, err := repos.IngestionJobs.GetByID(ctx, "00000000-0000-0000-0000-000000000000"); err != db.ErrNotFound {
+			t.Errorf("GetByID() missing error = %v, want ErrNotFound", err)
+		}
+	})
 }

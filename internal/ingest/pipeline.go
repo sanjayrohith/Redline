@@ -50,7 +50,7 @@ func NewCachePipeline(httpClient *http.Client, uploader Uploader, remover Object
 // stream is exhausted, the uploaded object is deleted and a
 // *ChecksumMismatchError is returned - the pipeline never leaves a
 // corrupted or tampered artifact live in the cache.
-func (p *CachePipeline) DownloadToCache(ctx context.Context, fileURL, algorithm, expectedHexDigest, objectKey string) (*cache.UploadResult, error) {
+func (p *CachePipeline) DownloadToCache(ctx context.Context, fileURL, algorithm, expectedHexDigest, objectKey string, onProgress ProgressFunc) (*cache.UploadResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: build download request: %w", err)
@@ -71,7 +71,9 @@ func (p *CachePipeline) DownloadToCache(ctx context.Context, fileURL, algorithm,
 		return nil, err
 	}
 
-	result, err := p.uploader.Upload(ctx, objectKey, io.TeeReader(resp.Body, h))
+	reader := newProgressReader(io.TeeReader(resp.Body, h), onProgress)
+
+	result, err := p.uploader.Upload(ctx, objectKey, reader)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: stream %s to cache: %w", fileURL, err)
 	}

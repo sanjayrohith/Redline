@@ -59,7 +59,7 @@ func TestCachePipeline_DownloadToCache_Success(t *testing.T) {
 	remover := &fakeRemover{}
 	pipeline := NewCachePipeline(server.Client(), uploader, remover)
 
-	result, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", sha256HexPipeline(content), "artifacts/model.safetensors")
+	result, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", sha256HexPipeline(content), "artifacts/model.safetensors", nil)
 	if err != nil {
 		t.Fatalf("DownloadToCache() error = %v", err)
 	}
@@ -85,7 +85,7 @@ func TestCachePipeline_DownloadToCache_DiscardsOnMismatch(t *testing.T) {
 	remover := &fakeRemover{}
 	pipeline := NewCachePipeline(server.Client(), uploader, remover)
 
-	_, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", sha256HexPipeline([]byte("expected something else")), "artifacts/model.safetensors")
+	_, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", sha256HexPipeline([]byte("expected something else")), "artifacts/model.safetensors", nil)
 
 	var mismatch *ChecksumMismatchError
 	if !errors.As(err, &mismatch) {
@@ -104,7 +104,7 @@ func TestCachePipeline_DownloadToCache_UpstreamError(t *testing.T) {
 
 	pipeline := NewCachePipeline(server.Client(), &fakeUploader{}, &fakeRemover{})
 
-	if _, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", "irrelevant", "artifacts/model.safetensors"); err == nil {
+	if _, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", "irrelevant", "artifacts/model.safetensors", nil); err == nil {
 		t.Fatal("DownloadToCache() error = nil, want error for 500")
 	}
 }
@@ -117,7 +117,37 @@ func TestCachePipeline_DownloadToCache_UploadError(t *testing.T) {
 
 	pipeline := NewCachePipeline(server.Client(), &fakeUploader{err: errors.New("bucket unreachable")}, &fakeRemover{})
 
-	if _, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", "irrelevant", "artifacts/model.safetensors"); err == nil {
+	if _, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", "irrelevant", "artifacts/model.safetensors", nil); err == nil {
 		t.Fatal("DownloadToCache() error = nil, want propagated upload error")
+	}
+}
+
+func TestCachePipeline_DownloadToCache_ReportsProgress(t *testing.T) {
+	content := bytes.Repeat([]byte("x"), 1000)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(content)
+	}))
+	defer server.Close()
+
+	pipeline := NewCachePipeline(server.Client(), &fakeUploader{}, &fakeRemover{})
+
+	var calls []int64
+	onProgress := func(bytesRead int64) { calls = append(calls, bytesRead) }
+
+	_, err := pipeline.DownloadToCache(context.Background(), server.URL, "sha256", sha256HexPipeline(content), "artifacts/model.safetensors", onProgress)
+	if err != nil {
+		t.Fatalf("DownloadToCache() error = %v", err)
+	}
+
+	if len(calls) == 0 {
+		t.Fatal("onProgress was never called")
+	}
+	if calls[len(calls)-1] != int64(len(content)) {
+		t.Errorf("final progress = %d, want %d", calls[len(calls)-1], len(content))
+	}
+	for i := 1; i < len(calls); i++ {
+		if calls[i] < calls[i-1] {
+			t.Fatalf("progress went backwards: %v", calls)
+		}
 	}
 }

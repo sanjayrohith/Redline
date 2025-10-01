@@ -57,7 +57,7 @@ func TestCachePipeline_DownloadToCache_RealMinIORoundTrip(t *testing.T) {
 
 	pipeline := ingest.NewCachePipeline(server.Client(), uploader, client)
 
-	result, err := pipeline.DownloadToCache(ctx, server.URL, "sha256", digest, "artifacts/real-model.safetensors")
+	result, err := pipeline.DownloadToCache(ctx, server.URL, "sha256", digest, "artifacts/real-model.safetensors", nil)
 	if err != nil {
 		t.Fatalf("DownloadToCache() error = %v", err)
 	}
