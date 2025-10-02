@@ -79,7 +79,7 @@ func TestLRUCache_EvictsLeastRecentlyUsed(t *testing.T) {
 	}
 }
 
-func TestLRUCache_PinnedEntrySurvivesEvictionPressure(t *testing.T) {
+func TestLRUCache_ReferencedEntrySurvivesEvictionPressure(t *testing.T) {
 	dir := t.TempDir()
 	c := NewLRUCache(150)
 
@@ -87,25 +87,25 @@ func TestLRUCache_PinnedEntrySurvivesEvictionPressure(t *testing.T) {
 	pathB := touchFile(t, dir, "b")
 
 	mustPut(t, c, "a", pathA, 100)
-	if err := c.Pin("a"); err != nil {
-		t.Fatalf("Pin() error = %v", err)
+	if err := c.Acquire("a"); err != nil {
+		t.Fatalf("Acquire() error = %v", err)
 	}
 
 	// "b" alone doesn't exceed capacity, but a+b would (200 > 150). Since
-	// "a" is pinned, "b" must simply fail to fit rather than evicting "a".
+	// "a" is referenced, "b" must simply fail to fit rather than evicting "a".
 	if err := c.Put("b", pathB, 100); !errors.Is(err, ErrInsufficientCapacity) {
 		t.Errorf("Put(b) error = %v, want ErrInsufficientCapacity", err)
 	}
 
 	if _, err := c.Get("a"); err != nil {
-		t.Errorf("Get(a) error = %v, want nil (pinned entry must survive)", err)
+		t.Errorf("Get(a) error = %v, want nil (referenced entry must survive)", err)
 	}
 	if _, err := os.Stat(pathA); err != nil {
-		t.Error("pinned entry's file should not have been deleted")
+		t.Error("referenced entry's file should not have been deleted")
 	}
 }
 
-func TestLRUCache_UnpinAllowsEviction(t *testing.T) {
+func TestLRUCache_ReleaseToZeroAllowsEviction(t *testing.T) {
 	dir := t.TempDir()
 	c := NewLRUCache(150)
 
@@ -113,18 +113,18 @@ func TestLRUCache_UnpinAllowsEviction(t *testing.T) {
 	pathB := touchFile(t, dir, "b")
 
 	mustPut(t, c, "a", pathA, 100)
-	if err := c.Pin("a"); err != nil {
-		t.Fatalf("Pin() error = %v", err)
+	if err := c.Acquire("a"); err != nil {
+		t.Fatalf("Acquire() error = %v", err)
 	}
-	if err := c.Unpin("a"); err != nil {
-		t.Fatalf("Unpin() error = %v", err)
+	if err := c.Release("a"); err != nil {
+		t.Fatalf("Release() error = %v", err)
 	}
 
 	if err := c.Put("b", pathB, 100); err != nil {
-		t.Fatalf("Put(b) error = %v, want nil now that a is unpinned", err)
+		t.Fatalf("Put(b) error = %v, want nil now that a has been released to zero", err)
 	}
 	if _, err := c.Get("a"); !errors.Is(err, ErrNotFound) {
-		t.Error("a should have been evicted after being unpinned")
+		t.Error("a should have been evicted after its reference count returned to zero")
 	}
 }
 
@@ -174,6 +174,70 @@ func TestLRUCache_UnboundedWhenMaxBytesZero(t *testing.T) {
 	}
 	if c.Len() != 5 {
 		t.Errorf("Len() = %d, want 5 (no eviction with maxBytes <= 0)", c.Len())
+	}
+}
+
+func TestLRUCache_MultipleAcquiresRequireMatchingReleases(t *testing.T) {
+	dir := t.TempDir()
+	c := NewLRUCache(150)
+
+	pathA := touchFile(t, dir, "a")
+	pathB := touchFile(t, dir, "b")
+
+	mustPut(t, c, "a", pathA, 100)
+	// Two independent deployments both reference "a".
+	if err := c.Acquire("a"); err != nil {
+		t.Fatalf("Acquire() error = %v", err)
+	}
+	if err := c.Acquire("a"); err != nil {
+		t.Fatalf("Acquire() error = %v", err)
+	}
+
+	if count, err := c.RefCount("a"); err != nil || count != 2 {
+		t.Fatalf("RefCount() = (%d, %v), want (2, nil)", count, err)
+	}
+
+	// Releasing once still leaves one live reference, so "a" must survive
+	// eviction pressure from "b".
+	if err := c.Release("a"); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	if err := c.Put("b", pathB, 100); !errors.Is(err, ErrInsufficientCapacity) {
+		t.Errorf("Put(b) error = %v, want ErrInsufficientCapacity (a still has one reference)", err)
+	}
+
+	// Releasing the final reference makes "a" evictable again.
+	if err := c.Release("a"); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	if err := c.Put("b", pathB, 100); err != nil {
+		t.Fatalf("Put(b) error = %v, want nil once a's last reference is released", err)
+	}
+}
+
+func TestLRUCache_ReleaseWithoutAcquireFails(t *testing.T) {
+	dir := t.TempDir()
+	c := NewLRUCache(1000)
+
+	path := touchFile(t, dir, "a")
+	mustPut(t, c, "a", path, 100)
+
+	if err := c.Release("a"); !errors.Is(err, ErrNotReferenced) {
+		t.Errorf("Release() error = %v, want ErrNotReferenced", err)
+	}
+}
+
+func TestLRUCache_AcquireReleaseMissingKey(t *testing.T) {
+	c := NewLRUCache(1000)
+
+	if err := c.Acquire("missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Acquire() error = %v, want ErrNotFound", err)
+	}
+	if err := c.Release("missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Release() error = %v, want ErrNotFound", err)
+	}
+	if _, err := c.RefCount("missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("RefCount() error = %v, want ErrNotFound", err)
 	}
 }
 
