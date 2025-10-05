@@ -31,9 +31,6 @@ func trivialJob(jobID string) *api.Job {
 	return job
 }
 
-func intPtr(v int) *int          { return &v }
-func stringPtr(v string) *string { return &v }
-
 func TestClient_SubmitJobAllocationsAndStop(t *testing.T) {
 	addr := startTestAgent(t)
 
