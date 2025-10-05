@@ -15,6 +15,7 @@ import (
 // logic can be tested against a fake instead of a live Nomad cluster.
 type Orchestrator interface {
 	SubmitJob(ctx context.Context, job *api.Job) (evalID string, err error)
+	SubmitJobIdempotent(ctx context.Context, job *api.Job) (evalID string, alreadyExisted bool, err error)
 	Allocation(ctx context.Context, allocID string) (*api.Allocation, error)
 	AllocationsForJob(ctx context.Context, jobID string) ([]*api.AllocationListStub, error)
 	StreamEvents(ctx context.Context, topics map[api.Topic][]string, index uint64) (<-chan *api.Events, error)
