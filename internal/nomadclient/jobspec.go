@@ -20,7 +20,26 @@ type InferenceJobSpec struct {
 	// MinVRAMBytes is the minimum per-device memory the scheduler must
 	// find before placing this job. Zero omits the constraint.
 	MinVRAMBytes int64
+
+	// CPUMHz is the task's CPU share in MHz. Defaults to
+	// DefaultCPUMHz if <= 0.
+	CPUMHz int
+	// MemoryMB is the task's target memory in MB. Defaults to
+	// DefaultMemoryMB if <= 0.
+	MemoryMB int
+	// MemoryMaxMB is the hard memory ceiling in MB: the task is OOM
+	// killed if it exceeds this, rather than starving its node's other
+	// allocations. Defaults to MemoryMB (no burst headroom) if <= 0.
+	MemoryMaxMB int
 }
+
+// DefaultCPUMHz and DefaultMemoryMB are conservative defaults for the
+// control-plane side of an inference task - the GPU does the real work;
+// these bound the CPU-side driver process.
+const (
+	DefaultCPUMHz   = 2000
+	DefaultMemoryMB = 4096
+)
 
 // BuildInferenceJob declares the base job specification for a stateless
 // inference worker: docker task driver, the given image and environment,
@@ -46,9 +65,7 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 		"image": spec.Image,
 	}
 	task.Env = spec.Env
-	task.Resources = &api.Resources{
-		Devices: []*api.RequestedDevice{gpuDeviceRequest(spec.GPUModel, spec.MinVRAMBytes)},
-	}
+	task.Resources = resourceRequest(spec)
 
 	tg.AddTask(task)
 	job.AddTaskGroup(tg)
@@ -60,6 +77,34 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 // so submission, lookup, and stop all agree on the same identifier.
 func InferenceJobID(deploymentID string) string {
 	return fmt.Sprintf("inference-%s", deploymentID)
+}
+
+// resourceRequest builds the task's full resource block: explicit CPU
+// shares, a target memory with a hard ceiling, and the GPU device
+// constraint, so a runaway process is bounded rather than free to starve
+// its node's other allocations.
+func resourceRequest(spec InferenceJobSpec) *api.Resources {
+	cpu := spec.CPUMHz
+	if cpu <= 0 {
+		cpu = DefaultCPUMHz
+	}
+
+	memory := spec.MemoryMB
+	if memory <= 0 {
+		memory = DefaultMemoryMB
+	}
+
+	memoryMax := spec.MemoryMaxMB
+	if memoryMax <= 0 {
+		memoryMax = memory
+	}
+
+	return &api.Resources{
+		CPU:         intPtr(cpu),
+		MemoryMB:    intPtr(memory),
+		MemoryMaxMB: intPtr(memoryMax),
+		Devices:     []*api.RequestedDevice{gpuDeviceRequest(spec.GPUModel, spec.MinVRAMBytes)},
+	}
 }
 
 // gpuDeviceRequest declares a device constraint requesting one NVIDIA GPU,

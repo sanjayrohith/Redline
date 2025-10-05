@@ -102,6 +102,42 @@ func TestFormatGiB_RoundsUp(t *testing.T) {
 	}
 }
 
+func TestBuildInferenceJob_DefaultResourceLimits(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img"})
+	res := job.TaskGroups[0].Tasks[0].Resources
+
+	if res.CPU == nil || *res.CPU != DefaultCPUMHz {
+		t.Errorf("CPU = %v, want %d", res.CPU, DefaultCPUMHz)
+	}
+	if res.MemoryMB == nil || *res.MemoryMB != DefaultMemoryMB {
+		t.Errorf("MemoryMB = %v, want %d", res.MemoryMB, DefaultMemoryMB)
+	}
+	if res.MemoryMaxMB == nil || *res.MemoryMaxMB != DefaultMemoryMB {
+		t.Errorf("MemoryMaxMB = %v, want %d (hard cap defaults to the target with no burst headroom)", res.MemoryMaxMB, DefaultMemoryMB)
+	}
+}
+
+func TestBuildInferenceJob_ExplicitResourceLimits(t *testing.T) {
+	spec := InferenceJobSpec{
+		DeploymentID: "dep-1",
+		Image:        "img",
+		CPUMHz:       4000,
+		MemoryMB:     8192,
+		MemoryMaxMB:  16384,
+	}
+	res := BuildInferenceJob(spec).TaskGroups[0].Tasks[0].Resources
+
+	if *res.CPU != 4000 {
+		t.Errorf("CPU = %d, want 4000", *res.CPU)
+	}
+	if *res.MemoryMB != 8192 {
+		t.Errorf("MemoryMB = %d, want 8192", *res.MemoryMB)
+	}
+	if *res.MemoryMaxMB != 16384 {
+		t.Errorf("MemoryMaxMB = %d, want 16384 (an explicit hard ceiling above the target)", *res.MemoryMaxMB)
+	}
+}
+
 func TestInferenceJobID_IsDeterministic(t *testing.T) {
 	if got := InferenceJobID("dep-123"); got != "inference-dep-123" {
 		t.Errorf("InferenceJobID() = %q, want inference-dep-123", got)
