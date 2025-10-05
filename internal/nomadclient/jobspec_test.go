@@ -44,6 +44,64 @@ func TestBuildInferenceJob(t *testing.T) {
 	}
 }
 
+func TestBuildInferenceJob_GPUDeviceConstraint(t *testing.T) {
+	spec := InferenceJobSpec{
+		DeploymentID: "dep-123",
+		Image:        "redline/vllm:latest",
+		GPUModel:     "A100",
+		MinVRAMBytes: 40 * 1024 * 1024 * 1024, // 40 GiB
+	}
+
+	job := BuildInferenceJob(spec)
+	devices := job.TaskGroups[0].Tasks[0].Resources.Devices
+	if len(devices) != 1 {
+		t.Fatalf("len(Devices) = %d, want 1", len(devices))
+	}
+
+	device := devices[0]
+	if device.Name != "nvidia/gpu/A100" {
+		t.Errorf("Name = %q, want nvidia/gpu/A100", device.Name)
+	}
+	if device.Count == nil || *device.Count != 1 {
+		t.Errorf("Count = %v, want 1", device.Count)
+	}
+	if len(device.Constraints) != 1 {
+		t.Fatalf("len(Constraints) = %d, want 1", len(device.Constraints))
+	}
+	c := device.Constraints[0]
+	if c.LTarget != "${device.attr.memory}" || c.Operand != ">=" || c.RTarget != "40 GiB" {
+		t.Errorf("constraint = %+v, want memory >= 40 GiB", c)
+	}
+}
+
+func TestBuildInferenceJob_GenericGPUWhenModelUnspecified(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img"})
+	device := job.TaskGroups[0].Tasks[0].Resources.Devices[0]
+
+	if device.Name != "nvidia/gpu" {
+		t.Errorf("Name = %q, want nvidia/gpu", device.Name)
+	}
+	if len(device.Constraints) != 0 {
+		t.Errorf("Constraints = %+v, want none when MinVRAMBytes is 0", device.Constraints)
+	}
+}
+
+func TestFormatGiB_RoundsUp(t *testing.T) {
+	tests := []struct {
+		bytes int64
+		want  string
+	}{
+		{40 * 1024 * 1024 * 1024, "40 GiB"},
+		{40*1024*1024*1024 + 1, "41 GiB"}, // one byte over rounds up
+		{1, "1 GiB"},
+	}
+	for _, tt := range tests {
+		if got := formatGiB(tt.bytes); got != tt.want {
+			t.Errorf("formatGiB(%d) = %q, want %q", tt.bytes, got, tt.want)
+		}
+	}
+}
+
 func TestInferenceJobID_IsDeterministic(t *testing.T) {
 	if got := InferenceJobID("dep-123"); got != "inference-dep-123" {
 		t.Errorf("InferenceJobID() = %q, want inference-dep-123", got)

@@ -13,6 +13,13 @@ type InferenceJobSpec struct {
 	DeploymentID string
 	Image        string
 	Env          map[string]string
+
+	// GPUModel names the required NVIDIA GPU model (e.g. "A100", "H100").
+	// Empty requests any NVIDIA GPU.
+	GPUModel string
+	// MinVRAMBytes is the minimum per-device memory the scheduler must
+	// find before placing this job. Zero omits the constraint.
+	MinVRAMBytes int64
 }
 
 // BuildInferenceJob declares the base job specification for a stateless
@@ -39,6 +46,9 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 		"image": spec.Image,
 	}
 	task.Env = spec.Env
+	task.Resources = &api.Resources{
+		Devices: []*api.RequestedDevice{gpuDeviceRequest(spec.GPUModel, spec.MinVRAMBytes)},
+	}
 
 	tg.AddTask(task)
 	job.AddTaskGroup(tg)
@@ -52,6 +62,39 @@ func InferenceJobID(deploymentID string) string {
 	return fmt.Sprintf("inference-%s", deploymentID)
 }
 
+// gpuDeviceRequest declares a device constraint requesting one NVIDIA GPU,
+// optionally pinned to a specific model and a minimum VRAM size, so the
+// Nomad scheduler only places this job on hardware that can actually run it.
+func gpuDeviceRequest(model string, minVRAMBytes int64) *api.RequestedDevice {
+	name := "nvidia/gpu"
+	if model != "" {
+		name = fmt.Sprintf("nvidia/gpu/%s", model)
+	}
+
+	req := &api.RequestedDevice{
+		Name:  name,
+		Count: uint64Ptr(1),
+	}
+
+	if minVRAMBytes > 0 {
+		req.Constraints = []*api.Constraint{
+			api.NewConstraint("${device.attr.memory}", ">=", formatGiB(minVRAMBytes)),
+		}
+	}
+
+	return req
+}
+
+// formatGiB renders bytes as a whole-number GiB string in the form
+// Nomad's device attribute constraints expect (e.g. "16 GiB"), rounding
+// up so the constraint never under-requests memory.
+func formatGiB(bytes int64) string {
+	const gib = 1024 * 1024 * 1024
+	gibCount := (bytes + gib - 1) / gib
+	return fmt.Sprintf("%d GiB", gibCount)
+}
+
 func intPtr(v int) *int                          { return &v }
 func stringPtr(v string) *string                 { return &v }
 func durationPtr(v time.Duration) *time.Duration { return &v }
+func uint64Ptr(v uint64) *uint64                 { return &v }
