@@ -1,6 +1,9 @@
 package nomadclient
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestBuildInferenceJob(t *testing.T) {
 	spec := InferenceJobSpec{
@@ -135,6 +138,40 @@ func TestBuildInferenceJob_ExplicitResourceLimits(t *testing.T) {
 	}
 	if *res.MemoryMaxMB != 16384 {
 		t.Errorf("MemoryMaxMB = %d, want 16384 (an explicit hard ceiling above the target)", *res.MemoryMaxMB)
+	}
+}
+
+func TestBuildInferenceJob_DefaultDrainAndKillTimeout(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img"})
+	tg := job.TaskGroups[0]
+
+	if tg.ShutdownDelay == nil || *tg.ShutdownDelay != DefaultDrainPeriod {
+		t.Errorf("ShutdownDelay = %v, want %v", tg.ShutdownDelay, DefaultDrainPeriod)
+	}
+
+	task := tg.Tasks[0]
+	if task.KillTimeout == nil || *task.KillTimeout != DefaultKillTimeout {
+		t.Errorf("KillTimeout = %v, want %v", task.KillTimeout, DefaultKillTimeout)
+	}
+	if task.KillSignal != "SIGTERM" {
+		t.Errorf("KillSignal = %q, want SIGTERM", task.KillSignal)
+	}
+}
+
+func TestBuildInferenceJob_ExplicitDrainAndKillTimeout(t *testing.T) {
+	spec := InferenceJobSpec{
+		DeploymentID: "dep-1",
+		Image:        "img",
+		DrainPeriod:  20 * time.Second,
+		KillTimeout:  90 * time.Second,
+	}
+	job := BuildInferenceJob(spec)
+
+	if *job.TaskGroups[0].ShutdownDelay != 20*time.Second {
+		t.Errorf("ShutdownDelay = %v, want 20s", *job.TaskGroups[0].ShutdownDelay)
+	}
+	if *job.TaskGroups[0].Tasks[0].KillTimeout != 90*time.Second {
+		t.Errorf("KillTimeout = %v, want 90s", *job.TaskGroups[0].Tasks[0].KillTimeout)
 	}
 }
 

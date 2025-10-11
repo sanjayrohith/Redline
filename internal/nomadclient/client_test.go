@@ -100,3 +100,59 @@ func TestClient_AllocationNotFound(t *testing.T) {
 		t.Fatal("Allocation() error = nil, want error for an unknown allocation id")
 	}
 }
+
+func TestClient_StopAllocation(t *testing.T) {
+	addr := startTestAgent(t)
+
+	client, err := NewClient(addr)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	job := trivialJob("nomadclient-stop-alloc-job")
+	if _, err := client.SubmitJob(ctx, job); err != nil {
+		t.Fatalf("SubmitJob() error = %v", err)
+	}
+	t.Cleanup(func() { _, _ = client.StopJob(context.Background(), *job.ID, true) })
+
+	var allocID string
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		allocs, err := client.AllocationsForJob(ctx, *job.ID)
+		if err != nil {
+			t.Fatalf("AllocationsForJob() error = %v", err)
+		}
+		if len(allocs) > 0 {
+			allocID = allocs[0].ID
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if allocID == "" {
+		t.Fatal("job never produced an allocation")
+	}
+
+	if err := client.StopAllocation(ctx, allocID); err != nil {
+		t.Fatalf("StopAllocation() error = %v", err)
+	}
+
+	deadline = time.Now().Add(15 * time.Second)
+	var desiredStatus string
+	for time.Now().Before(deadline) {
+		alloc, err := client.Allocation(ctx, allocID)
+		if err != nil {
+			t.Fatalf("Allocation() error = %v", err)
+		}
+		desiredStatus = alloc.DesiredStatus
+		if desiredStatus == "stop" {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if desiredStatus != "stop" {
+		t.Errorf("DesiredStatus = %q, want stop", desiredStatus)
+	}
+}

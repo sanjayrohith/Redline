@@ -31,6 +31,15 @@ type InferenceJobSpec struct {
 	// killed if it exceeds this, rather than starving its node's other
 	// allocations. Defaults to MemoryMB (no burst headroom) if <= 0.
 	MemoryMaxMB int
+
+	// DrainPeriod is how long Nomad waits after deregistering the
+	// allocation before sending its kill signal, giving in-flight
+	// requests routed via service discovery time to finish. Defaults to
+	// DefaultDrainPeriod if <= 0.
+	DrainPeriod time.Duration
+	// KillTimeout is the grace period between the kill signal and a
+	// forced SIGKILL. Defaults to DefaultKillTimeout if <= 0.
+	KillTimeout time.Duration
 }
 
 // DefaultCPUMHz and DefaultMemoryMB are conservative defaults for the
@@ -39,6 +48,15 @@ type InferenceJobSpec struct {
 const (
 	DefaultCPUMHz   = 2000
 	DefaultMemoryMB = 4096
+)
+
+// DefaultDrainPeriod and DefaultKillTimeout bound graceful teardown: long
+// enough for an in-flight generation to finish and for the allocation to
+// drop out of service discovery, short enough that a stuck process is
+// still reclaimed promptly.
+const (
+	DefaultDrainPeriod = 10 * time.Second
+	DefaultKillTimeout = 30 * time.Second
 )
 
 // BuildInferenceJob declares the base job specification for a stateless
@@ -59,6 +77,7 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 		Delay:    durationPtr(15 * time.Second),
 		Mode:     stringPtr("fail"),
 	}
+	tg.ShutdownDelay = durationPtr(orDefault(spec.DrainPeriod, DefaultDrainPeriod))
 
 	task := api.NewTask("vllm", "docker")
 	task.Config = map[string]any{
@@ -66,6 +85,8 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 	}
 	task.Env = spec.Env
 	task.Resources = resourceRequest(spec)
+	task.KillSignal = "SIGTERM"
+	task.KillTimeout = durationPtr(orDefault(spec.KillTimeout, DefaultKillTimeout))
 
 	tg.AddTask(task)
 	job.AddTaskGroup(tg)
@@ -137,6 +158,13 @@ func formatGiB(bytes int64) string {
 	const gib = 1024 * 1024 * 1024
 	gibCount := (bytes + gib - 1) / gib
 	return fmt.Sprintf("%d GiB", gibCount)
+}
+
+func orDefault(v, def time.Duration) time.Duration {
+	if v <= 0 {
+		return def
+	}
+	return v
 }
 
 func intPtr(v int) *int                          { return &v }

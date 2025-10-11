@@ -20,6 +20,7 @@ type Orchestrator interface {
 	AllocationsForJob(ctx context.Context, jobID string) ([]*api.AllocationListStub, error)
 	StreamEvents(ctx context.Context, topics map[api.Topic][]string, index uint64) (<-chan *api.Events, error)
 	StopJob(ctx context.Context, jobID string, purge bool) (evalID string, err error)
+	StopAllocation(ctx context.Context, allocID string) error
 }
 
 // Client wraps a *api.Client bound to one Nomad cluster.
@@ -89,4 +90,21 @@ func (c *Client) StopJob(ctx context.Context, jobID string, purge bool) (string,
 		return "", fmt.Errorf("nomad: stop job %s: %w", jobID, err)
 	}
 	return evalID, nil
+}
+
+// StopAllocation gracefully stops a single allocation without
+// deregistering its job, following the task group's drain period and
+// kill timeout (see InferenceJobSpec.DrainPeriod / KillTimeout): Nomad
+// deregisters the allocation from service discovery, waits out the drain
+// period so in-flight requests can finish, then sends the kill signal.
+func (c *Client) StopAllocation(ctx context.Context, allocID string) error {
+	alloc, err := c.Allocation(ctx, allocID)
+	if err != nil {
+		return err
+	}
+
+	if _, err := c.api.Allocations().Stop(alloc, (&api.QueryOptions{}).WithContext(ctx)); err != nil {
+		return fmt.Errorf("nomad: stop allocation %s: %w", allocID, err)
+	}
+	return nil
 }
