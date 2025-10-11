@@ -85,26 +85,39 @@ func mustFreePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-type fakeDeploymentStateUpdater struct {
+// fakeDeploymentStateStore implements scheduler.DeploymentStateStore,
+// defaulting an unseen deployment ID to scheduler.StateQueued - matching
+// how a freshly created deployment row starts out in the real database.
+type fakeDeploymentStateStore struct {
 	mu     sync.Mutex
-	states map[string][]string
+	states map[string][]scheduler.DeploymentState
 }
 
-func newFakeDeploymentStateUpdater() *fakeDeploymentStateUpdater {
-	return &fakeDeploymentStateUpdater{states: map[string][]string{}}
+func newFakeDeploymentStateStore() *fakeDeploymentStateStore {
+	return &fakeDeploymentStateStore{states: map[string][]scheduler.DeploymentState{}}
 }
 
-func (f *fakeDeploymentStateUpdater) UpdateState(_ context.Context, id, state string) error {
+func (f *fakeDeploymentStateStore) CurrentState(_ context.Context, id string) (scheduler.DeploymentState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	history := f.states[id]
+	if len(history) == 0 {
+		return scheduler.StateQueued, nil
+	}
+	return history[len(history)-1], nil
+}
+
+func (f *fakeDeploymentStateStore) UpdateState(_ context.Context, id string, state scheduler.DeploymentState) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.states[id] = append(f.states[id], state)
 	return nil
 }
 
-func (f *fakeDeploymentStateUpdater) statesFor(id string) []string {
+func (f *fakeDeploymentStateStore) statesFor(id string) []scheduler.DeploymentState {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]string(nil), f.states[id]...)
+	return append([]scheduler.DeploymentState(nil), f.states[id]...)
 }
 
 func rawExecInferenceJob(deploymentID string) *api.Job {
@@ -135,7 +148,7 @@ func TestStatusStreamer_PersistsAllocationTransitions(t *testing.T) {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 
-	updater := newFakeDeploymentStateUpdater()
+	updater := newFakeDeploymentStateStore()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	streamer := scheduler.NewStatusStreamer(client, updater, logger)
 
@@ -158,10 +171,10 @@ func TestStatusStreamer_PersistsAllocationTransitions(t *testing.T) {
 	t.Cleanup(func() { _, _ = client.StopJob(context.Background(), *job.ID, true) })
 
 	deadline := time.Now().Add(20 * time.Second)
-	var states []string
+	var states []scheduler.DeploymentState
 	for time.Now().Before(deadline) {
 		states = updater.statesFor(deploymentID)
-		if len(states) > 0 && states[len(states)-1] == "ready" {
+		if len(states) > 0 && states[len(states)-1] == scheduler.StateReady {
 			break
 		}
 		time.Sleep(300 * time.Millisecond)
@@ -170,7 +183,7 @@ func TestStatusStreamer_PersistsAllocationTransitions(t *testing.T) {
 	if len(states) == 0 {
 		t.Fatal("no deployment state transitions were persisted")
 	}
-	if states[len(states)-1] != "ready" {
+	if states[len(states)-1] != scheduler.StateReady {
 		t.Errorf("final state = %q, want ready; full sequence = %v", states[len(states)-1], states)
 	}
 }

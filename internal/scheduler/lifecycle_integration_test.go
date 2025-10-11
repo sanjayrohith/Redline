@@ -24,7 +24,7 @@ func TestNomadLifecycle_SubmitStatusTransitionIdempotentResubmitStop(t *testing.
 		t.Fatalf("NewClient() error = %v", err)
 	}
 
-	updater := newFakeDeploymentStateUpdater()
+	updater := newFakeDeploymentStateStore()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	streamer := scheduler.NewStatusStreamer(client, updater, logger)
 
@@ -54,15 +54,15 @@ func TestNomadLifecycle_SubmitStatusTransitionIdempotentResubmitStop(t *testing.
 	// 2. Status transition: the streamer should persist "ready" once the
 	// allocation starts running.
 	deadline := time.Now().Add(20 * time.Second)
-	var states []string
+	var states []scheduler.DeploymentState
 	for time.Now().Before(deadline) {
 		states = updater.statesFor(deploymentID)
-		if len(states) > 0 && states[len(states)-1] == "ready" {
+		if len(states) > 0 && states[len(states)-1] == scheduler.StateReady {
 			break
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	if len(states) == 0 || states[len(states)-1] != "ready" {
+	if len(states) == 0 || states[len(states)-1] != scheduler.StateReady {
 		t.Fatalf("deployment state transitions = %v, want the final state to be ready", states)
 	}
 

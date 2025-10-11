@@ -14,29 +14,22 @@ import (
 	"github.com/sanjayrohith/redline/internal/nomadclient"
 )
 
-// DeploymentStateUpdater persists a deployment's state transition. It is
-// satisfied by *db.DeploymentRepository.
-type DeploymentStateUpdater interface {
-	UpdateState(ctx context.Context, id, state string) error
-}
-
 // inferenceJobPrefix must match nomadclient.InferenceJobID's format, so a
 // Nomad job ID can be reversed back into the deployment ID that produced it.
 const inferenceJobPrefix = "inference-"
 
 // StatusStreamer consumes the Nomad allocation event stream and persists
 // each allocation's lifecycle transition to the matching deployment
-// record. The state names used here are provisional; the authoritative
-// deployment state machine and its legal transitions are defined
-// alongside it, layered on top of this stream rather than replacing it.
+// record, rejecting any transition the state machine (see state.go) does
+// not permit rather than persisting it blindly.
 type StatusStreamer struct {
 	orchestrator nomadclient.Orchestrator
-	deployments  DeploymentStateUpdater
+	deployments  DeploymentStateStore
 	logger       *slog.Logger
 }
 
 // NewStatusStreamer returns a StatusStreamer wired to orchestrator and deployments.
-func NewStatusStreamer(orchestrator nomadclient.Orchestrator, deployments DeploymentStateUpdater, logger *slog.Logger) *StatusStreamer {
+func NewStatusStreamer(orchestrator nomadclient.Orchestrator, deployments DeploymentStateStore, logger *slog.Logger) *StatusStreamer {
 	return &StatusStreamer{orchestrator: orchestrator, deployments: deployments, logger: logger}
 }
 
@@ -89,14 +82,29 @@ func (s *StatusStreamer) handleEvent(ctx context.Context, ev api.Event) {
 		return // not one of ours
 	}
 
-	state := mapAllocationState(alloc.ClientStatus)
-	if state == "" {
+	next := mapAllocationState(alloc.ClientStatus)
+	if next == "" {
 		return
 	}
 
-	if err := s.deployments.UpdateState(ctx, deploymentID, state); err != nil {
+	current, err := s.deployments.CurrentState(ctx, deploymentID)
+	if err != nil {
+		s.logger.Error("read current deployment state", "deployment_id", deploymentID, "error", err)
+		return
+	}
+
+	if err := ValidateTransition(current, next); err != nil {
+		s.logger.Warn("dropped illegal deployment state transition",
+			"deployment_id", deploymentID, "from", current, "to", next, "error", err)
+		return
+	}
+	if current == next {
+		return // no-op: nothing to persist
+	}
+
+	if err := s.deployments.UpdateState(ctx, deploymentID, next); err != nil {
 		s.logger.Error("persist deployment state transition",
-			"deployment_id", deploymentID, "state", state, "error", err)
+			"deployment_id", deploymentID, "state", next, "error", err)
 	}
 }
 
@@ -109,18 +117,18 @@ func deploymentIDFromJobID(jobID string) (string, bool) {
 }
 
 // mapAllocationState translates a Nomad allocation ClientStatus into a
-// deployment state string. Empty means "no meaningful transition" (e.g.
-// an intermediate status this gateway doesn't track).
-func mapAllocationState(clientStatus string) string {
+// DeploymentState. Empty means "no meaningful transition" (e.g. an
+// intermediate status this gateway doesn't track).
+func mapAllocationState(clientStatus string) DeploymentState {
 	switch clientStatus {
 	case "pending":
-		return "provisioning"
+		return StateProvisioning
 	case "running":
-		return "ready"
+		return StateReady
 	case "complete":
-		return "terminated"
+		return StateTerminated
 	case "failed", "lost":
-		return "failed"
+		return StateFailed
 	default:
 		return ""
 	}

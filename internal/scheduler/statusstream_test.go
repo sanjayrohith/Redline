@@ -22,12 +22,12 @@ func TestDeploymentIDFromJobID(t *testing.T) {
 }
 
 func TestMapAllocationState(t *testing.T) {
-	tests := map[string]string{
-		"pending":  "provisioning",
-		"running":  "ready",
-		"complete": "terminated",
-		"failed":   "failed",
-		"lost":     "failed",
+	tests := map[string]DeploymentState{
+		"pending":  StateProvisioning,
+		"running":  StateReady,
+		"complete": StateTerminated,
+		"failed":   StateFailed,
+		"lost":     StateFailed,
 		"unknown":  "",
 	}
 	for status, want := range tests {
