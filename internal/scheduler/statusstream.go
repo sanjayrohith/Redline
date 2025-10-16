@@ -82,6 +82,10 @@ func (s *StatusStreamer) handleEvent(ctx context.Context, ev api.Event) {
 		return // not one of ours
 	}
 
+	if err := s.deployments.SetAllocationID(ctx, deploymentID, alloc.ID); err != nil {
+		s.logger.Error("record allocation id", "deployment_id", deploymentID, "allocation_id", alloc.ID, "error", err)
+	}
+
 	next := mapAllocationState(alloc.ClientStatus)
 	if next == "" {
 		return

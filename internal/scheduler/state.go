@@ -73,10 +73,11 @@ func IsTerminal(state DeploymentState) bool {
 }
 
 // DeploymentStateStore reads and writes a deployment's current lifecycle
-// state.
+// state and its backing Nomad allocation ID.
 type DeploymentStateStore interface {
 	CurrentState(ctx context.Context, id string) (DeploymentState, error)
 	UpdateState(ctx context.Context, id string, state DeploymentState) error
+	SetAllocationID(ctx context.Context, id, allocationID string) error
 }
 
 // DBDeploymentStore adapts *db.DeploymentRepository to DeploymentStateStore.
@@ -96,4 +97,9 @@ func (s *DBDeploymentStore) CurrentState(ctx context.Context, id string) (Deploy
 // UpdateState implements DeploymentStateStore.
 func (s *DBDeploymentStore) UpdateState(ctx context.Context, id string, state DeploymentState) error {
 	return s.Repo.UpdateState(ctx, id, string(state))
+}
+
+// SetAllocationID implements DeploymentStateStore.
+func (s *DBDeploymentStore) SetAllocationID(ctx context.Context, id, allocationID string) error {
+	return s.Repo.SetAllocationID(ctx, id, allocationID)
 }

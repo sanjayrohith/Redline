@@ -68,6 +68,48 @@ func (r *DeploymentRepository) UpdateState(ctx context.Context, id, state string
 	return nil
 }
 
+// SetAllocationID records the Nomad allocation backing a deployment, once known.
+func (r *DeploymentRepository) SetAllocationID(ctx context.Context, id, allocationID string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE deployments SET allocation_id = $2, updated_at = now() WHERE id = $1`,
+		id, allocationID,
+	)
+	if err != nil {
+		return mapError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ListByState returns every deployment currently in state, newest first.
+func (r *DeploymentRepository) ListByState(ctx context.Context, state string) ([]Deployment, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at
+		 FROM deployments WHERE state = $1 ORDER BY created_at DESC`,
+		state,
+	)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+
+	var deployments []Deployment
+	for rows.Next() {
+		var d Deployment
+		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		deployments = append(deployments, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, mapError(err)
+	}
+
+	return deployments, nil
+}
+
 // ListByModel returns every deployment for modelID, newest first.
 func (r *DeploymentRepository) ListByModel(ctx context.Context, modelID string) ([]Deployment, error) {
 	rows, err := r.pool.Query(ctx,

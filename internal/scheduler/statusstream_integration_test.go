@@ -114,6 +114,10 @@ func (f *fakeDeploymentStateStore) UpdateState(_ context.Context, id string, sta
 	return nil
 }
 
+func (f *fakeDeploymentStateStore) SetAllocationID(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func (f *fakeDeploymentStateStore) statesFor(id string) []scheduler.DeploymentState {
 	f.mu.Lock()
 	defer f.mu.Unlock()
