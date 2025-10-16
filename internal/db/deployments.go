@@ -110,6 +110,34 @@ func (r *DeploymentRepository) ListByState(ctx context.Context, state string) ([
 	return deployments, nil
 }
 
+// ListActive returns every deployment not in a terminal state
+// ("terminated" or "failed"), newest first - the set that should still
+// have a live Nomad allocation backing it, if any.
+func (r *DeploymentRepository) ListActive(ctx context.Context) ([]Deployment, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at
+		 FROM deployments WHERE state NOT IN ('terminated', 'failed') ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+
+	var deployments []Deployment
+	for rows.Next() {
+		var d Deployment
+		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		deployments = append(deployments, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, mapError(err)
+	}
+
+	return deployments, nil
+}
+
 // ListByModel returns every deployment for modelID, newest first.
 func (r *DeploymentRepository) ListByModel(ctx context.Context, modelID string) ([]Deployment, error) {
 	rows, err := r.pool.Query(ctx,

@@ -18,6 +18,7 @@ type Orchestrator interface {
 	SubmitJobIdempotent(ctx context.Context, job *api.Job) (evalID string, alreadyExisted bool, err error)
 	Allocation(ctx context.Context, allocID string) (*api.Allocation, error)
 	AllocationsForJob(ctx context.Context, jobID string) ([]*api.AllocationListStub, error)
+	ListAllocations(ctx context.Context) ([]*api.AllocationListStub, error)
 	StreamEvents(ctx context.Context, topics map[api.Topic][]string, index uint64) (<-chan *api.Events, error)
 	StopJob(ctx context.Context, jobID string, purge bool) (evalID string, err error)
 	StopAllocation(ctx context.Context, allocID string) error
@@ -68,6 +69,16 @@ func (c *Client) AllocationsForJob(ctx context.Context, jobID string) ([]*api.Al
 	allocs, _, err := c.api.Jobs().Allocations(jobID, false, (&api.QueryOptions{}).WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("nomad: list allocations for job %s: %w", jobID, err)
+	}
+	return allocs, nil
+}
+
+// ListAllocations lists every allocation across the whole cluster,
+// regardless of job.
+func (c *Client) ListAllocations(ctx context.Context) ([]*api.AllocationListStub, error) {
+	allocs, _, err := c.api.Allocations().List((&api.QueryOptions{}).WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("nomad: list allocations: %w", err)
 	}
 	return allocs, nil
 }
