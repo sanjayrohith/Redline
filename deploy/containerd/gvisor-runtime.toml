@@ -1,0 +1,22 @@
+# gvisor-runtime.toml — containerd runtime handler registration for
+# gVisor's runsc, imported into /etc/containerd/config.toml by
+# install-gvisor.sh. Applied identically to every GPU worker node.
+#
+# The base OCI runtime handler ("runc") is left untouched and remains the
+# default; "runsc" is registered as an additional, explicitly-selectable
+# handler. The Nomad job spec picks it per task (see
+# nomadclient.BuildInferenceJob's runtime selection), so nothing switches
+# to the sandboxed runtime unless a task asks for it by name.
+
+version = 2
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
+  runtime_type = "io.containerd.runsc.v1"
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc.options]
+  TypeUrl = "io.containerd.runsc.v1.options"
+  # ConfigPath points at gVisor's own runsc.toml, which carries the
+  # nvproxy and network-isolation flags configured in later steps -
+  # keeping the containerd-level wiring here separate from runsc's own
+  # sandbox policy.
+  ConfigPath = "/etc/containerd/runsc.toml"
