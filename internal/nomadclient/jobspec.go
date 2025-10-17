@@ -40,6 +40,13 @@ type InferenceJobSpec struct {
 	// KillTimeout is the grace period between the kill signal and a
 	// forced SIGKILL. Defaults to DefaultKillTimeout if <= 0.
 	KillTimeout time.Duration
+
+	// Runtime is the Docker runtime handler the container executes
+	// under. Defaults to DefaultRuntime ("runsc", gVisor's application
+	// kernel) if empty - every model container is treated as hostile by
+	// default, never the host kernel, unless a caller deliberately opts
+	// out for a non-model task.
+	Runtime string
 }
 
 // DefaultCPUMHz and DefaultMemoryMB are conservative defaults for the
@@ -58,6 +65,13 @@ const (
 	DefaultDrainPeriod = 10 * time.Second
 	DefaultKillTimeout = 30 * time.Second
 )
+
+// DefaultRuntime is gVisor's application kernel: every inference
+// container runs under it unless a spec explicitly overrides Runtime.
+// The node's Docker daemon must have this runtime handler registered
+// (see deploy/provisioning/docker-daemon.json) for the value to resolve
+// to anything.
+const DefaultRuntime = "runsc"
 
 // BuildInferenceJob declares the base job specification for a stateless
 // inference worker: docker task driver, the given image and environment,
@@ -80,8 +94,13 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 	tg.ShutdownDelay = durationPtr(orDefault(spec.DrainPeriod, DefaultDrainPeriod))
 
 	task := api.NewTask("vllm", "docker")
+	runtime := spec.Runtime
+	if runtime == "" {
+		runtime = DefaultRuntime
+	}
 	task.Config = map[string]any{
-		"image": spec.Image,
+		"image":   spec.Image,
+		"runtime": runtime,
 	}
 	task.Env = spec.Env
 	task.Resources = resourceRequest(spec)

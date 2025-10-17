@@ -42,6 +42,9 @@ func TestBuildInferenceJob(t *testing.T) {
 	if task.Config["image"] != spec.Image {
 		t.Errorf("Config[image] = %v, want %q", task.Config["image"], spec.Image)
 	}
+	if task.Config["runtime"] != DefaultRuntime {
+		t.Errorf("Config[runtime] = %v, want %q (gVisor by default)", task.Config["runtime"], DefaultRuntime)
+	}
 	if task.Env["MODEL"] != "meta-llama/Llama-3-8B" {
 		t.Errorf("Env[MODEL] = %q, want meta-llama/Llama-3-8B", task.Env["MODEL"])
 	}
@@ -172,6 +175,13 @@ func TestBuildInferenceJob_ExplicitDrainAndKillTimeout(t *testing.T) {
 	}
 	if *job.TaskGroups[0].Tasks[0].KillTimeout != 90*time.Second {
 		t.Errorf("KillTimeout = %v, want 90s", *job.TaskGroups[0].Tasks[0].KillTimeout)
+	}
+}
+
+func TestBuildInferenceJob_ExplicitRuntimeOverride(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img", Runtime: "runc"})
+	if got := job.TaskGroups[0].Tasks[0].Config["runtime"]; got != "runc" {
+		t.Errorf("Config[runtime] = %v, want runc", got)
 	}
 }
 
