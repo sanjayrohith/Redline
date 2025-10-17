@@ -185,6 +185,64 @@ func TestBuildInferenceJob_ExplicitRuntimeOverride(t *testing.T) {
 	}
 }
 
+func TestBuildInferenceJob_ReadOnlyRootfsWithScopedTmpfs(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img"})
+	cfg := job.TaskGroups[0].Tasks[0].Config
+
+	if cfg["readonly_rootfs"] != true {
+		t.Errorf("Config[readonly_rootfs] = %v, want true", cfg["readonly_rootfs"])
+	}
+
+	mounts, ok := cfg["mounts"].([]map[string]any)
+	if !ok || len(mounts) != 2 {
+		t.Fatalf("Config[mounts] = %v, want 2 tmpfs mounts", cfg["mounts"])
+	}
+
+	byTarget := map[string]map[string]any{}
+	for _, m := range mounts {
+		byTarget[m["target"].(string)] = m
+	}
+
+	tmp, ok := byTarget["/tmp"]
+	if !ok || tmp["type"] != "tmpfs" {
+		t.Errorf("/tmp mount = %+v, want type tmpfs", tmp)
+	}
+	if size := tmp["tmpfs_options"].(map[string]any)["size"]; size != int64(DefaultTmpfsSizeBytes) {
+		t.Errorf("/tmp size = %v, want %d", size, DefaultTmpfsSizeBytes)
+	}
+
+	shm, ok := byTarget["/dev/shm"]
+	if !ok || shm["type"] != "tmpfs" {
+		t.Errorf("/dev/shm mount = %+v, want type tmpfs", shm)
+	}
+	if size := shm["tmpfs_options"].(map[string]any)["size"]; size != int64(DefaultShmSizeBytes) {
+		t.Errorf("/dev/shm size = %v, want %d", size, DefaultShmSizeBytes)
+	}
+}
+
+func TestBuildInferenceJob_ExplicitTmpfsAndShmSizes(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{
+		DeploymentID: "dep-1", Image: "img",
+		TmpfsSizeBytes: 256 * 1024 * 1024,
+		ShmSizeBytes:   2 * 1024 * 1024 * 1024,
+	})
+	mounts := job.TaskGroups[0].Tasks[0].Config["mounts"].([]map[string]any)
+
+	for _, m := range mounts {
+		size := m["tmpfs_options"].(map[string]any)["size"]
+		switch m["target"] {
+		case "/tmp":
+			if size != int64(256*1024*1024) {
+				t.Errorf("/tmp size = %v, want 256MiB", size)
+			}
+		case "/dev/shm":
+			if size != int64(2*1024*1024*1024) {
+				t.Errorf("/dev/shm size = %v, want 2GiB", size)
+			}
+		}
+	}
+}
+
 func TestInferenceJobID_IsDeterministic(t *testing.T) {
 	if got := InferenceJobID("dep-123"); got != "inference-dep-123" {
 		t.Errorf("InferenceJobID() = %q, want inference-dep-123", got)

@@ -47,6 +47,14 @@ type InferenceJobSpec struct {
 	// default, never the host kernel, unless a caller deliberately opts
 	// out for a non-model task.
 	Runtime string
+
+	// TmpfsSizeBytes bounds the writable /tmp mount. Defaults to
+	// DefaultTmpfsSizeBytes if <= 0.
+	TmpfsSizeBytes int64
+	// ShmSizeBytes bounds the writable /dev/shm mount, which PyTorch's
+	// multiprocessing and NCCL both require for inter-process tensor
+	// transfer. Defaults to DefaultShmSizeBytes if <= 0.
+	ShmSizeBytes int64
 }
 
 // DefaultCPUMHz and DefaultMemoryMB are conservative defaults for the
@@ -64,6 +72,15 @@ const (
 const (
 	DefaultDrainPeriod = 10 * time.Second
 	DefaultKillTimeout = 30 * time.Second
+)
+
+// DefaultTmpfsSizeBytes and DefaultShmSizeBytes bound the only two
+// writable paths a container gets, since the root filesystem itself is
+// mounted read-only. 1GiB of shared memory is generous headroom for
+// PyTorch/NCCL's tensor IPC even under tensor parallelism.
+const (
+	DefaultTmpfsSizeBytes = 512 * 1024 * 1024
+	DefaultShmSizeBytes   = 1024 * 1024 * 1024
 )
 
 // DefaultRuntime is gVisor's application kernel: every inference
@@ -98,9 +115,35 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 	if runtime == "" {
 		runtime = DefaultRuntime
 	}
+	tmpfsSize := spec.TmpfsSizeBytes
+	if tmpfsSize <= 0 {
+		tmpfsSize = DefaultTmpfsSizeBytes
+	}
+	shmSize := spec.ShmSizeBytes
+	if shmSize <= 0 {
+		shmSize = DefaultShmSizeBytes
+	}
+
 	task.Config = map[string]any{
-		"image":   spec.Image,
-		"runtime": runtime,
+		"image":           spec.Image,
+		"runtime":         runtime,
+		"readonly_rootfs": true,
+		"mounts": []map[string]any{
+			{
+				"type":   "tmpfs",
+				"target": "/tmp",
+				"tmpfs_options": map[string]any{
+					"size": tmpfsSize,
+				},
+			},
+			{
+				"type":   "tmpfs",
+				"target": "/dev/shm",
+				"tmpfs_options": map[string]any{
+					"size": shmSize,
+				},
+			},
+		},
 	}
 	task.Env = spec.Env
 	task.Resources = resourceRequest(spec)
