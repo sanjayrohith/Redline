@@ -1,0 +1,10 @@
+# base-image.lock — resolved base image digests, written by CI's build
+# pipeline on every successful build, never hand-edited. `docker build`
+# does not read this file directly; CI passes the pinned digest in via
+# `--build-arg` (or a generated FROM line) so the Dockerfile itself stays
+# human-readable while the actual build is fully digest-pinned.
+#
+# format: <image>:<tag> -> <image>@<digest>
+#
+# Populated on first CI run against this Dockerfile; intentionally empty
+# until then rather than carrying a fabricated placeholder digest.
