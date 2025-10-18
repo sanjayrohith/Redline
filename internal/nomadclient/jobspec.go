@@ -128,6 +128,12 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 		"image":           spec.Image,
 		"runtime":         runtime,
 		"readonly_rootfs": true,
+		// Every Linux capability is dropped and none are added back:
+		// there is no path from inside this container to raw sockets,
+		// mount operations, or kernel module loading, regardless of
+		// what the sandboxed process ends up doing.
+		"cap_drop": []string{"ALL"},
+		"cap_add":  []string{},
 		"mounts": []map[string]any{
 			{
 				"type":   "tmpfs",

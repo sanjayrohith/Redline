@@ -243,6 +243,21 @@ func TestBuildInferenceJob_ExplicitTmpfsAndShmSizes(t *testing.T) {
 	}
 }
 
+func TestBuildInferenceJob_DropsAllCapabilitiesAddsNone(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img"})
+	cfg := job.TaskGroups[0].Tasks[0].Config
+
+	capDrop, ok := cfg["cap_drop"].([]string)
+	if !ok || len(capDrop) != 1 || capDrop[0] != "ALL" {
+		t.Errorf("Config[cap_drop] = %v, want [ALL]", cfg["cap_drop"])
+	}
+
+	capAdd, ok := cfg["cap_add"].([]string)
+	if !ok || len(capAdd) != 0 {
+		t.Errorf("Config[cap_add] = %v, want an empty slice", cfg["cap_add"])
+	}
+}
+
 func TestInferenceJobID_IsDeterministic(t *testing.T) {
 	if got := InferenceJobID("dep-123"); got != "inference-dep-123" {
 		t.Errorf("InferenceJobID() = %q, want inference-dep-123", got)
