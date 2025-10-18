@@ -53,7 +53,25 @@ register_containerd_runtime() {
 		printf '\nimports = ["%s/gvisor-runtime.toml"]\n' "${CONTAINERD_CONFIG_DIR}" >>"${CONTAINERD_CONFIG}"
 	fi
 
+	install_runsc_policy
 	systemctl restart containerd
+}
+
+# install_runsc_policy renders runsc.toml with this node's actual
+# installed NVIDIA driver version substituted in, so nvproxy is always
+# pinned to hardware that is really present rather than a value copied
+# from another node's provisioning run.
+install_runsc_policy() {
+	local driver_version
+	driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n1)"
+	if [[ -z "${driver_version}" ]]; then
+		echo "install-gvisor.sh: could not detect NVIDIA driver version via nvidia-smi" >&2
+		exit 1
+	fi
+
+	sed "s/{{ NVIDIA_DRIVER_VERSION }}/${driver_version}/" \
+		"$(dirname "$0")/../containerd/runsc.toml" \
+		>"${CONTAINERD_CONFIG_DIR}/runsc.toml"
 }
 
 verify_installation() {

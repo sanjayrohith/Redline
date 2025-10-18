@@ -9,9 +9,9 @@
 [runsc_config]
   # nvproxy exposes the host NVIDIA driver through gVisor's intercepting
   # ioctl layer instead of mapping /dev/nvidia* into the sandbox directly -
-  # every driver call the sandboxed process makes is inspected and
-  # constrained by gVisor first (see runsc-nvproxy-drivers.toml for the
-  # capability allowlist itself, step 79).
+  # every driver call the sandboxed process makes is inspected against
+  # nvproxy's per-version ioctl allowlist before it ever reaches the real
+  # driver.
   nvproxy = "true"
 
   # Required alongside nvproxy for the Docker integration path (as
@@ -21,3 +21,23 @@
   # nvidia-container-runtime hook that would otherwise do that
   # translation.
   nvproxy-docker = "true"
+
+  # Pins nvproxy to exactly the driver version installed on this node.
+  # nvproxy's ioctl struct layouts are generated per driver version; an
+  # unpinned nvproxy silently falls back to best-effort compatibility
+  # with whatever driver happens to be present, which is precisely the
+  # ambiguity a hostile-workload boundary cannot tolerate. Rewritten by
+  # install-gvisor.sh from `nvidia-smi --query-gpu=driver_version`, never
+  # hand-edited.
+  nvproxy-driver-version = "{{ NVIDIA_DRIVER_VERSION }}"
+
+# The ioctl capability set itself is not a separate allowlist file to
+# maintain: nvproxy only ever implements the ioctls needed for compute
+# workloads (cuInit, memory management, kernel launch, and so on) and has
+# no support for the display, video encode/decode, or graphics ioctl
+# families at all - there is nothing to deny because those code paths do
+# not exist in nvproxy. NVIDIA_DRIVER_CAPABILITIES=compute,utility (set
+# on every task by nomadclient.BuildInferenceJob) is the belt to this
+# suspenders: it also tells the driver's own userspace libraries inside
+# the sandbox not to attempt to load the capability classes nvproxy would
+# refuse anyway.
