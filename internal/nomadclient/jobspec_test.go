@@ -50,6 +50,36 @@ func TestBuildInferenceJob(t *testing.T) {
 	}
 }
 
+func TestBuildInferenceJob_SetsNvproxyEnv(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{
+		DeploymentID: "dep-1", Image: "img",
+		Env: map[string]string{"MODEL": "meta-llama/Llama-3-8B"},
+	})
+	env := job.TaskGroups[0].Tasks[0].Env
+
+	if env["NVIDIA_VISIBLE_DEVICES"] != "all" {
+		t.Errorf("Env[NVIDIA_VISIBLE_DEVICES] = %q, want all", env["NVIDIA_VISIBLE_DEVICES"])
+	}
+	if env["NVIDIA_DRIVER_CAPABILITIES"] != "compute,utility" {
+		t.Errorf("Env[NVIDIA_DRIVER_CAPABILITIES] = %q, want compute,utility", env["NVIDIA_DRIVER_CAPABILITIES"])
+	}
+	if env["MODEL"] != "meta-llama/Llama-3-8B" {
+		t.Errorf("Env[MODEL] = %q, want meta-llama/Llama-3-8B (caller env preserved alongside the sandbox baseline)", env["MODEL"])
+	}
+}
+
+func TestBuildInferenceJob_CallerEnvOverridesNvproxyDefaults(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{
+		DeploymentID: "dep-1", Image: "img",
+		Env: map[string]string{"NVIDIA_VISIBLE_DEVICES": "0,1"},
+	})
+	env := job.TaskGroups[0].Tasks[0].Env
+
+	if env["NVIDIA_VISIBLE_DEVICES"] != "0,1" {
+		t.Errorf("Env[NVIDIA_VISIBLE_DEVICES] = %q, want 0,1 (caller override should win)", env["NVIDIA_VISIBLE_DEVICES"])
+	}
+}
+
 func TestBuildInferenceJob_GPUDeviceConstraint(t *testing.T) {
 	spec := InferenceJobSpec{
 		DeploymentID: "dep-123",

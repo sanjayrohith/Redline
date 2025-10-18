@@ -1,0 +1,23 @@
+# runsc.toml — gVisor sandbox policy for every container that runs under
+# the "runsc" runtime handler (see gvisor-runtime.toml's ConfigPath).
+# Applied node-wide: a task opts into this policy simply by naming
+# "runsc" as its runtime (InferenceJobSpec.Runtime), never by carrying its
+# own copy of these flags.
+#
+# Reference: https://gvisor.dev/docs/user_guide/gpu/
+
+[runsc_config]
+  # nvproxy exposes the host NVIDIA driver through gVisor's intercepting
+  # ioctl layer instead of mapping /dev/nvidia* into the sandbox directly -
+  # every driver call the sandboxed process makes is inspected and
+  # constrained by gVisor first (see runsc-nvproxy-drivers.toml for the
+  # capability allowlist itself, step 79).
+  nvproxy = "true"
+
+  # Required alongside nvproxy for the Docker integration path (as
+  # opposed to Kubernetes' device plugin path): runsc discovers which
+  # GPUs to expose from the container's NVIDIA_VISIBLE_DEVICES
+  # environment variable itself, since --runtime=runsc bypasses the
+  # nvidia-container-runtime hook that would otherwise do that
+  # translation.
+  nvproxy-docker = "true"

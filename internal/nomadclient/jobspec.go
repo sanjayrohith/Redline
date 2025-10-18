@@ -151,7 +151,7 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 			},
 		},
 	}
-	task.Env = spec.Env
+	task.Env = mergeEnv(nvproxyEnv(), spec.Env)
 	task.Resources = resourceRequest(spec)
 	task.KillSignal = "SIGTERM"
 	task.KillTimeout = durationPtr(orDefault(spec.KillTimeout, DefaultKillTimeout))
@@ -233,6 +233,30 @@ func orDefault(v, def time.Duration) time.Duration {
 		return def
 	}
 	return v
+}
+
+// nvproxyEnv are the environment variables gVisor's nvproxy reads (in
+// place of the nvidia-container-runtime hook, which --runtime=runsc
+// bypasses) to decide which GPUs to expose inside the sandbox and which
+// driver capability classes the sandboxed process may use.
+func nvproxyEnv() map[string]string {
+	return map[string]string{
+		"NVIDIA_VISIBLE_DEVICES":     "all",
+		"NVIDIA_DRIVER_CAPABILITIES": "compute,utility",
+	}
+}
+
+// mergeEnv layers override on top of base, giving the caller-supplied
+// spec.Env the final say over any key the sandbox baseline also sets.
+func mergeEnv(base, override map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(override))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range override {
+		merged[k] = v
+	}
+	return merged
 }
 
 func intPtr(v int) *int                          { return &v }
