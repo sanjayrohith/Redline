@@ -288,6 +288,13 @@ func TestBuildInferenceJob_DropsAllCapabilitiesAddsNone(t *testing.T) {
 	}
 }
 
+func TestBuildInferenceJob_EnforcesHardCPUCgroupLimit(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img"})
+	if got := job.TaskGroups[0].Tasks[0].Config["cpu_hard_limit"]; got != true {
+		t.Errorf("Config[cpu_hard_limit] = %v, want true", got)
+	}
+}
+
 func TestInferenceJobID_IsDeterministic(t *testing.T) {
 	if got := InferenceJobID("dep-123"); got != "inference-dep-123" {
 		t.Errorf("InferenceJobID() = %q, want inference-dep-123", got)

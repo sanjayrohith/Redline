@@ -134,6 +134,14 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 		// what the sandboxed process ends up doing.
 		"cap_drop": []string{"ALL"},
 		"cap_add":  []string{},
+		// Hard cgroup ceilings, not soft shares: cpu_hard_limit turns
+		// Resources.CPU into a real CFS quota the kernel enforces even
+		// when the node has spare cycles, and MemoryMaxMB (set below via
+		// task.Resources) is already a hard OOM-kill ceiling rather than
+		// a reclaimable target. An infinite generation loop or a runaway
+		// allocation hits a wall at the sandbox boundary instead of
+		// starving every other allocation on the node.
+		"cpu_hard_limit": true,
 		"mounts": []map[string]any{
 			{
 				"type":   "tmpfs",
