@@ -295,6 +295,18 @@ func TestBuildInferenceJob_EnforcesHardCPUCgroupLimit(t *testing.T) {
 	}
 }
 
+func TestBuildInferenceJob_UsesDedicatedNetworkNamespace(t *testing.T) {
+	job := BuildInferenceJob(InferenceJobSpec{DeploymentID: "dep-1", Image: "img"})
+	networks := job.TaskGroups[0].Networks
+
+	if len(networks) != 1 {
+		t.Fatalf("TaskGroups[0].Networks has %d entries, want 1", len(networks))
+	}
+	if want := "cni/redline-alloc"; networks[0].Mode != want {
+		t.Errorf("Networks[0].Mode = %q, want %q", networks[0].Mode, want)
+	}
+}
+
 func TestInferenceJobID_IsDeterministic(t *testing.T) {
 	if got := InferenceJobID("dep-123"); got != "inference-dep-123" {
 		t.Errorf("InferenceJobID() = %q, want inference-dep-123", got)

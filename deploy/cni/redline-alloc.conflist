@@ -1,0 +1,27 @@
+{
+  "cniVersion": "1.0.0",
+  "name": "redline-alloc",
+  "plugins": [
+    {
+      "type": "bridge",
+      "bridge": "redline0",
+      "isDefaultGateway": true,
+      "isGateway": true,
+      "ipMasq": false,
+      "hairpinMode": false,
+      "ipam": {
+        "type": "host-local",
+        "subnet": "172.30.0.0/16",
+        "routes": []
+      }
+    },
+    {
+      "type": "firewall",
+      "backend": "nftables"
+    },
+    {
+      "type": "portmap",
+      "capabilities": { "portMappings": true }
+    }
+  ]
+}

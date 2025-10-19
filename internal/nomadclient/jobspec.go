@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/nomad/api"
+
+	"github.com/sanjayrohith/redline/internal/netsec"
 )
 
 // InferenceJobSpec is the input to BuildInferenceJob: everything specific
@@ -109,6 +111,12 @@ func BuildInferenceJob(spec InferenceJobSpec) *api.Job {
 		Mode:     stringPtr("fail"),
 	}
 	tg.ShutdownDelay = durationPtr(orDefault(spec.DrainPeriod, DefaultDrainPeriod))
+	// Every allocation gets its own network namespace off the
+	// redline-alloc CNI network rather than sharing the host's network
+	// stack (the docker driver's default): a compromised container has
+	// no route to the host and no route to a sibling allocation's
+	// namespace without the CNI firewall plugin explicitly permitting it.
+	tg.Networks = []*api.NetworkResource{netsec.AllocationNetwork()}
 
 	task := api.NewTask("vllm", "docker")
 	runtime := spec.Runtime
