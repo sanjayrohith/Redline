@@ -18,6 +18,14 @@ func TestBuildEgressRuleset_DropsAllRFC1918Ranges(t *testing.T) {
 	}
 }
 
+func TestBuildEgressRuleset_DropsLinkLocalMetadataRange(t *testing.T) {
+	ruleset := netsec.BuildEgressRuleset()
+	want := "ip daddr 169.254.0.0/16 drop"
+	if !strings.Contains(ruleset, want) {
+		t.Errorf("ruleset missing rule %q; got:\n%s", want, ruleset)
+	}
+}
+
 func TestBuildEgressRuleset_DefaultPolicyIsAccept(t *testing.T) {
 	// Only RFC 1918 space is denied at this point; later steps narrow the
 	// default further (link-local metadata block, then an allowlist).

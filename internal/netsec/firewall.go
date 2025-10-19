@@ -12,6 +12,14 @@ var rfc1918Ranges = []string{
 	"192.168.0.0/16",
 }
 
+// linkLocalRange is RFC 3927 address space. Cloud providers serve
+// instance identity documents and, on many platforms, ambient IAM/role
+// credentials from a well-known link-local address inside this range -
+// a container that can reach it can mint credentials for the node it
+// happens to be scheduled on. There is no legitimate reason for an
+// inference container to originate traffic here at all.
+const linkLocalRange = "169.254.0.0/16"
+
 // BuildEgressRuleset renders the nftables ruleset installed into an
 // allocation's network namespace by the redline-alloc CNI network's
 // chained firewall plugin (see deploy/cni/redline-alloc.conflist). It
@@ -26,6 +34,7 @@ func BuildEgressRuleset() string {
 	for _, cidr := range rfc1918Ranges {
 		b.WriteString("    ip daddr " + cidr + " drop\n")
 	}
+	b.WriteString("    ip daddr " + linkLocalRange + " drop\n")
 	b.WriteString("  }\n")
 	b.WriteString("}\n")
 	return b.String()
