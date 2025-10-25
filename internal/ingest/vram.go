@@ -62,7 +62,20 @@ func int4WeightBytes(paramCount int64) int64 {
 }
 
 func kvCacheBytes(g ModelGeometry) int64 {
-	if g.NumLayers <= 0 || g.NumAttentionHeads <= 0 || g.HiddenSize <= 0 || g.ContextLength <= 0 {
+	if g.ContextLength <= 0 {
+		return 0
+	}
+	return KVCacheBytesPerToken(g) * int64(g.ContextLength)
+}
+
+// KVCacheBytesPerToken is the KV cache memory one token of context costs
+// across every layer, at the fp16 precision the cache is always kept at
+// (see kvCacheBytesPerElement). Exported so callers sizing a KV cache in
+// fixed-size blocks - PagedAttention's block allocator, for one - can
+// derive bytes-per-block as KVCacheBytesPerToken(g) * tokensPerBlock
+// without duplicating this geometry math.
+func KVCacheBytesPerToken(g ModelGeometry) int64 {
+	if g.NumLayers <= 0 || g.NumAttentionHeads <= 0 || g.HiddenSize <= 0 {
 		return 0
 	}
 
@@ -72,6 +85,5 @@ func kvCacheBytes(g ModelGeometry) int64 {
 	}
 	headDim := g.HiddenSize / g.NumAttentionHeads
 
-	return int64(kAndVTensors) * int64(g.NumLayers) * int64(kvHeads) * int64(headDim) *
-		int64(g.ContextLength) * int64(kvCacheBytesPerElement)
+	return int64(kAndVTensors) * int64(g.NumLayers) * int64(kvHeads) * int64(headDim) * int64(kvCacheBytesPerElement)
 }
