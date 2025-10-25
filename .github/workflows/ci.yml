@@ -29,3 +29,28 @@ jobs:
 
       - name: test
         run: make test
+
+  # Required status check (branch protection): a change that weakens
+  # sandbox or network isolation must fail this job, not merely the
+  # general test suite, which skips these tests when runsc is absent
+  # instead of failing.
+  sandbox-escape-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: install runsc
+        run: |
+          set -euo pipefail
+          url="https://storage.googleapis.com/gvisor/releases/release/latest/$(uname -m)/runsc"
+          curl -fsSL -o /usr/local/bin/runsc "$url"
+          chmod +x /usr/local/bin/runsc
+          runsc --version
+
+      - name: sandbox and network isolation tests
+        run: go test -race -v ./internal/sandbox/... ./internal/netsec/...
