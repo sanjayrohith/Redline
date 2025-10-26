@@ -109,3 +109,32 @@ type ChatCompletionResponse struct {
 	Choices []ChatCompletionChoice `json:"choices"`
 	Usage   ChatCompletionUsage    `json:"usage"`
 }
+
+// ChatCompletionChunkDelta is the incremental content one streamed chunk
+// carries. Role is set only on the first chunk of a stream, matching the
+// OpenAI-compatible wire format; every later chunk carries Content alone.
+type ChatCompletionChunkDelta struct {
+	Role    string `json:"role,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+// ChatCompletionChunkChoice is one streamed chunk's choice entry.
+// FinishReason is nil on every chunk but the last.
+type ChatCompletionChunkChoice struct {
+	Index        int                      `json:"index"`
+	Delta        ChatCompletionChunkDelta `json:"delta"`
+	FinishReason *string                  `json:"finish_reason"`
+}
+
+// ChatCompletionChunk is one SSE event's JSON payload for a streamed
+// /v1/chat/completions response. The final chunk of a stream - the one
+// carrying FinishReason - also carries Usage; every earlier chunk leaves
+// Usage nil, since token accounting is only final once generation stops.
+type ChatCompletionChunk struct {
+	ID      string                      `json:"id"`
+	Object  string                      `json:"object"`
+	Created int64                       `json:"created"`
+	Model   string                      `json:"model"`
+	Choices []ChatCompletionChunkChoice `json:"choices"`
+	Usage   *ChatCompletionUsage        `json:"usage,omitempty"`
+}

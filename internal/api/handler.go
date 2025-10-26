@@ -59,6 +59,11 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 			defer cancel()
 		}
 
+		if req.Stream {
+			streamChatCompletion(genCtx, w, backend, requestID, req)
+			return
+		}
+
 		result, err := backend.Complete(genCtx, toBackendRequest(requestID, req))
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -90,6 +95,83 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+// streamChatCompletion drives an OpenAI-compatible SSE response off
+// backend.Stream: one "data: <chunk json>\n\n" event per token, flushed
+// immediately so the client sees each token as it arrives rather than
+// buffered behind Go's default response buffering, a final chunk
+// carrying the finish reason and usage, and the SSE-standard
+// "data: [DONE]\n\n" terminator.
+//
+// Response headers are already committed (status 200, event-stream
+// content type) by the time any error can occur, since a mid-stream
+// generation failure has no HTTP status left to report through - the
+// stream simply ends without its normal chunks, which is the same
+// failure signature a client sees for a plain dropped connection.
+func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend inference.Backend, requestID string, req ChatCompletionRequest) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		apierror.Write(w, http.StatusInternalServerError, apierror.CodeInternal, "streaming not supported", requestID)
+		return
+	}
+
+	events, err := backend.Stream(ctx, toBackendRequest(requestID, req))
+	if err != nil {
+		apierror.Write(w, http.StatusInternalServerError, apierror.CodeInternal, "completion failed", requestID)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	id := "chatcmpl-" + requestID
+	created := time.Now().Unix()
+	first := true
+
+	for ev := range events {
+		if ev.Err != nil {
+			return
+		}
+
+		if !ev.Done {
+			delta := ChatCompletionChunkDelta{Content: ev.Content}
+			if first {
+				delta.Role = "assistant"
+				first = false
+			}
+			writeSSEChunk(w, flusher, ChatCompletionChunk{
+				ID: id, Object: "chat.completion.chunk", Created: created, Model: req.Model,
+				Choices: []ChatCompletionChunkChoice{{Index: 0, Delta: delta}},
+			})
+			continue
+		}
+
+		finishReason := ev.FinishReason
+		writeSSEChunk(w, flusher, ChatCompletionChunk{
+			ID: id, Object: "chat.completion.chunk", Created: created, Model: req.Model,
+			Choices: []ChatCompletionChunkChoice{{Index: 0, Delta: ChatCompletionChunkDelta{}, FinishReason: &finishReason}},
+			Usage: &ChatCompletionUsage{
+				PromptTokens:     ev.Usage.PromptTokens,
+				CompletionTokens: ev.Usage.CompletionTokens,
+				TotalTokens:      ev.Usage.PromptTokens + ev.Usage.CompletionTokens,
+			},
+		})
+	}
+
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	flusher.Flush()
+}
+
+func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, chunk ChatCompletionChunk) {
+	payload, err := json.Marshal(chunk)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+	flusher.Flush()
 }
 
 // estimatedSequenceLength approximates the total context window a request
