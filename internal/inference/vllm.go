@@ -113,7 +113,7 @@ func (v *VLLMBackend) Complete(ctx context.Context, req CompletionRequest) (*Com
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("inference: vllm returned status %d", resp.StatusCode)
+		return nil, newVLLMStatusError(resp.StatusCode, resp.Body)
 	}
 
 	var parsed vllmChatResponse
@@ -167,9 +167,10 @@ func (v *VLLMBackend) Stream(ctx context.Context, req CompletionRequest) (<-chan
 		return nil, fmt.Errorf("inference: vllm request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		err := newVLLMStatusError(resp.StatusCode, resp.Body)
 		_ = resp.Body.Close()
 		cancel()
-		return nil, fmt.Errorf("inference: vllm returned status %d", resp.StatusCode)
+		return nil, err
 	}
 
 	v.register(req.RequestID, cancel)
@@ -263,4 +264,20 @@ func (v *VLLMBackend) unregister(requestID string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	delete(v.inFlight, requestID)
+}
+
+// maxErrorBodyBytes bounds how much of a non-200 response body
+// newVLLMStatusError reads into the returned error: enough to carry a
+// CUDA OOM stack trace's identifying line for IsCUDAOutOfMemory to
+// classify, without risking an unbounded read against a misbehaving
+// upstream.
+const maxErrorBodyBytes = 4096
+
+// newVLLMStatusError builds the error returned for a non-200 vLLM
+// response, folding in the response body: IsCUDAOutOfMemory needs the
+// body's text to distinguish a CUDA out-of-memory failure from any other
+// server error, since vLLM reports both as a plain 500.
+func newVLLMStatusError(statusCode int, body io.Reader) error {
+	snippet, _ := io.ReadAll(io.LimitReader(body, maxErrorBodyBytes))
+	return fmt.Errorf("inference: vllm returned status %d: %s", statusCode, snippet)
 }
