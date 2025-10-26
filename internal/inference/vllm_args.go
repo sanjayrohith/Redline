@@ -41,6 +41,36 @@ type EngineArgs struct {
 	// TensorParallelSize is --tensor-parallel-size: how many of the
 	// node's GPUs the model's weights are sharded across.
 	TensorParallelSize int
+	// GPUMemoryUtilization is --gpu-memory-utilization, always within
+	// [MinGPUMemoryUtilization, MaxGPUMemoryUtilization] regardless of
+	// what was requested - see ClampGPUMemoryUtilization.
+	GPUMemoryUtilization float64
+}
+
+// MinGPUMemoryUtilization and MaxGPUMemoryUtilization bound
+// --gpu-memory-utilization. Values above the ceiling reliably trigger
+// host RAM exhaustion during CUDA graph compilation - the compiler stages
+// graph buffers in host memory sized relative to how much device memory
+// it believes it can use, and a ceiling near 100% starves that staging
+// step on any node without an unusually large amount of host RAM
+// relative to its VRAM. Values below the floor are needlessly wasteful.
+const (
+	MinGPUMemoryUtilization = 0.80
+	MaxGPUMemoryUtilization = 0.85
+)
+
+// ClampGPUMemoryUtilization bounds requested to
+// [MinGPUMemoryUtilization, MaxGPUMemoryUtilization], regardless of what
+// a caller (or a model's own recommended config) asked for.
+func ClampGPUMemoryUtilization(requested float64) float64 {
+	switch {
+	case requested < MinGPUMemoryUtilization:
+		return MinGPUMemoryUtilization
+	case requested > MaxGPUMemoryUtilization:
+		return MaxGPUMemoryUtilization
+	default:
+		return requested
+	}
 }
 
 // ErrModelExceedsNodeCapacity means the model's weights, sharded across
@@ -74,7 +104,7 @@ func dtypeForPrecision(p Precision) (dtype, quantization string, err error) {
 // footprintBytes: sharding is real overhead (activation memory, all-reduce
 // traffic), so the model is spread across only as many GPUs as it actually
 // needs, not the whole node by default.
-func RenderEngineArgs(geometry ingest.ModelGeometry, footprintBytes int64, precision Precision, profile NodeHardwareProfile) (EngineArgs, error) {
+func RenderEngineArgs(geometry ingest.ModelGeometry, footprintBytes int64, precision Precision, profile NodeHardwareProfile, requestedGPUMemoryUtilization float64) (EngineArgs, error) {
 	dtype, quantization, err := dtypeForPrecision(precision)
 	if err != nil {
 		return EngineArgs{}, err
@@ -97,9 +127,10 @@ func RenderEngineArgs(geometry ingest.ModelGeometry, footprintBytes int64, preci
 	}
 
 	return EngineArgs{
-		MaxModelLen:        geometry.ContextLength,
-		DType:              dtype,
-		Quantization:       quantization,
-		TensorParallelSize: tp,
+		MaxModelLen:          geometry.ContextLength,
+		DType:                dtype,
+		Quantization:         quantization,
+		TensorParallelSize:   tp,
+		GPUMemoryUtilization: ClampGPUMemoryUtilization(requestedGPUMemoryUtilization),
 	}, nil
 }
