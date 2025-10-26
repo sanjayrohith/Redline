@@ -122,6 +122,20 @@ func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend in
 		return
 	}
 
+	// ctx is cancelled the moment the client disconnects (net/http cancels
+	// a server request's context as soon as the underlying connection
+	// closes) as well as when this handler returns normally. Either way,
+	// telling the backend to cancel explicitly - rather than trusting
+	// every Backend implementation to notice ctx cancellation deep inside
+	// its own Stream loop - is what actually stops an abandoned request
+	// from continuing to consume GPU cycles once nothing is reading its
+	// output anymore. A Cancel call after the request already finished on
+	// its own is a defined no-op, so firing it unconditionally here is safe.
+	go func() { // #nosec G118 -- context.Background is deliberate: ctx is already Done by the time Cancel is called, so it cannot be reused
+		<-ctx.Done()
+		_ = backend.Cancel(context.Background(), requestID)
+	}()
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
