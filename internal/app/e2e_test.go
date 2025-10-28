@@ -80,12 +80,13 @@ func newTestApp(t *testing.T, env e2eEnv, mutate func(*config.Config)) *app.App 
 	t.Helper()
 
 	cfg := &config.Config{
-		ListenAddr:       "127.0.0.1:0",
-		Environment:      "test",
-		LogLevel:         "error",
-		DatabaseURL:      env.postgresDSN,
-		DBMaxConns:       5,
-		DBConnectTimeout: 10 * time.Second,
+		ListenAddr:        "127.0.0.1:0",
+		MetricsListenAddr: "127.0.0.1:0",
+		Environment:       "test",
+		LogLevel:          "error",
+		DatabaseURL:       env.postgresDSN,
+		DBMaxConns:        5,
+		DBConnectTimeout:  10 * time.Second,
 
 		JWTSigningKey:   "test-signing-key",
 		JWTIssuer:       "redline",

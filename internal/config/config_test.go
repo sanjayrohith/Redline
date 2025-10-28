@@ -19,11 +19,24 @@ func TestLoad(t *testing.T) {
 		if cfg.ListenAddr != ":8080" {
 			t.Errorf("ListenAddr = %q, want :8080", cfg.ListenAddr)
 		}
+		if cfg.MetricsListenAddr != ":9090" {
+			t.Errorf("MetricsListenAddr = %q, want :9090", cfg.MetricsListenAddr)
+		}
+	})
+
+	t.Run("fails fast when metrics and public listen addrs collide", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("listen_addr: :8080\nmetrics_listen_addr: :8080\ndatabase_url: postgres://test/db\njwt_signing_key: test-signing-key\nredis_addr: localhost:6379\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil {
+			t.Fatal("Load() error = nil, want error when metrics_listen_addr equals listen_addr")
+		}
 	})
 
 	t.Run("yaml file overrides defaults", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte("listen_addr: :9090\ndatabase_url: postgres://test/db\njwt_signing_key: test-signing-key\nredis_addr: localhost:6379\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("listen_addr: :9090\nmetrics_listen_addr: :9091\ndatabase_url: postgres://test/db\njwt_signing_key: test-signing-key\nredis_addr: localhost:6379\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		cfg, err := Load(path)
@@ -37,7 +50,7 @@ func TestLoad(t *testing.T) {
 
 	t.Run("env overrides yaml file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte("listen_addr: :9090\ndatabase_url: postgres://test/db\njwt_signing_key: test-signing-key\nredis_addr: localhost:6379\n"), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte("listen_addr: :9090\nmetrics_listen_addr: :9091\ndatabase_url: postgres://test/db\njwt_signing_key: test-signing-key\nredis_addr: localhost:6379\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("REDLINE_LISTEN_ADDR", ":7070")

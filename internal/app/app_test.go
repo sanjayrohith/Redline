@@ -11,13 +11,14 @@ import (
 
 func TestAppConstructsServesAndShutsDownCleanly(t *testing.T) {
 	cfg := &config.Config{
-		ListenAddr:       "127.0.0.1:0",
-		Environment:      "test",
-		LogLevel:         "error",
-		DatabaseURL:      "postgres://test/db",
-		DBMaxConns:       5,
-		DBConnectTimeout: time.Second,
-		RedisAddr:        "127.0.0.1:0",
+		ListenAddr:        "127.0.0.1:0",
+		MetricsListenAddr: "127.0.0.1:0",
+		Environment:       "test",
+		LogLevel:          "error",
+		DatabaseURL:       "postgres://test/db",
+		DBMaxConns:        5,
+		DBConnectTimeout:  time.Second,
+		RedisAddr:         "127.0.0.1:0",
 	}
 
 	a, err := New(context.Background(), cfg)

@@ -18,6 +18,13 @@ type Config struct {
 	Environment string `yaml:"environment"`
 	LogLevel    string `yaml:"log_level"`
 
+	// MetricsListenAddr binds Prometheus' /metrics exposition endpoint on
+	// its own listener, separate from ListenAddr: metrics carry internal
+	// operational detail (per-route latency, queue depth) that has no
+	// business being reachable from wherever the public API port is
+	// exposed, so the two are never the same server.
+	MetricsListenAddr string `yaml:"metrics_listen_addr"`
+
 	DatabaseURL      string        `yaml:"database_url"`
 	DBMaxConns       int32         `yaml:"db_max_conns"`
 	DBConnectTimeout time.Duration `yaml:"db_connect_timeout"`
@@ -48,9 +55,10 @@ type Config struct {
 
 func defaults() Config {
 	return Config{
-		ListenAddr:  ":8080",
-		Environment: "development",
-		LogLevel:    "info",
+		ListenAddr:        ":8080",
+		MetricsListenAddr: ":9090",
+		Environment:       "development",
+		LogLevel:          "info",
 
 		DBMaxConns:       10,
 		DBConnectTimeout: 5 * time.Second,
@@ -107,6 +115,9 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("REDLINE_LISTEN_ADDR"); v != "" {
 		cfg.ListenAddr = v
 	}
+	if v := os.Getenv("REDLINE_METRICS_LISTEN_ADDR"); v != "" {
+		cfg.MetricsListenAddr = v
+	}
 	if v := os.Getenv("REDLINE_ENVIRONMENT"); v != "" {
 		cfg.Environment = v
 	}
@@ -137,6 +148,12 @@ func (c Config) validate() error {
 
 	if c.ListenAddr == "" {
 		missing = append(missing, "listen_addr")
+	}
+	if c.MetricsListenAddr == "" {
+		missing = append(missing, "metrics_listen_addr")
+	}
+	if c.MetricsListenAddr == c.ListenAddr && c.ListenAddr != "" {
+		return fmt.Errorf("config: metrics_listen_addr must not be the same address as listen_addr (metrics must never share the public API port)")
 	}
 	if c.Environment == "" {
 		missing = append(missing, "environment")

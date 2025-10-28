@@ -19,6 +19,7 @@ import (
 	"github.com/sanjayrohith/redline/internal/httpmw"
 	"github.com/sanjayrohith/redline/internal/inference"
 	"github.com/sanjayrohith/redline/internal/logging"
+	"github.com/sanjayrohith/redline/internal/metrics"
 	"github.com/sanjayrohith/redline/internal/ratelimit"
 	"github.com/sanjayrohith/redline/internal/redisclient"
 	"github.com/sanjayrohith/redline/internal/router"
@@ -27,13 +28,15 @@ import (
 // App holds every dependency the gateway needs to serve traffic and owns
 // the HTTP server's start/stop lifecycle.
 type App struct {
-	server   *http.Server
-	logger   *slog.Logger
-	dbPool   *db.Pool
-	redis    *redisclient.Client
-	repos    *db.Repositories
-	sessions *auth.SessionIssuer
-	router   *router.Router
+	server        *http.Server
+	metricsServer *http.Server
+	logger        *slog.Logger
+	dbPool        *db.Pool
+	redis         *redisclient.Client
+	repos         *db.Repositories
+	sessions      *auth.SessionIssuer
+	router        *router.Router
+	metrics       *metrics.Registry
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
@@ -91,10 +94,19 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	rt.Mux.Handle("GET /v1/models", httpmw.APIKeyAuth(repos.APIKeys)(api.ModelsHandler(repos.Models)))
 
+	metricsRegistry := metrics.NewRegistry()
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", metricsRegistry.Handler())
+
 	return &App{
 		server: &http.Server{
 			Addr:              cfg.ListenAddr,
 			Handler:           rt.Handler,
+			ReadHeaderTimeout: 5 * time.Second,
+		},
+		metricsServer: &http.Server{
+			Addr:              cfg.MetricsListenAddr,
+			Handler:           metricsMux,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 		logger:   logger,
@@ -103,7 +115,15 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		repos:    repos,
 		sessions: sessions,
 		router:   rt,
+		metrics:  metricsRegistry,
 	}, nil
+}
+
+// Metrics returns the App's metric collector registry, so packages
+// outside app can register their own collectors against the same
+// registry the /metrics endpoint serves, before Run starts.
+func (a *App) Metrics() *metrics.Registry {
+	return a.metrics
 }
 
 // Close releases resources held by the App, such as the database pool and
@@ -152,7 +172,12 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("listen on %s: %w", a.server.Addr, err)
 	}
 
-	serveErr := make(chan error, 1)
+	metricsListener, err := net.Listen("tcp", a.metricsServer.Addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", a.metricsServer.Addr, err)
+	}
+
+	serveErr := make(chan error, 2)
 	go func() {
 		if err := a.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
@@ -160,8 +185,16 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		serveErr <- nil
 	}()
+	go func() {
+		if err := a.metricsServer.Serve(metricsListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+			return
+		}
+		serveErr <- nil
+	}()
 
 	a.logger.Info("gateway listening", "addr", a.server.Addr)
+	a.logger.Info("metrics listening", "addr", a.metricsServer.Addr)
 
 	select {
 	case err := <-serveErr:
@@ -174,6 +207,9 @@ func (a *App) Run(ctx context.Context) error {
 
 		if err := a.server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown: %w", err)
+		}
+		if err := a.metricsServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("metrics shutdown: %w", err)
 		}
 		return nil
 	}
