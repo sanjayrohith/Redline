@@ -10,6 +10,7 @@ type Repositories struct {
 	Deployments      *DeploymentRepository
 	InferenceRuns    *InferenceRunRepository
 	TelemetrySamples *TelemetrySampleRepository
+	TelemetryRollups *TelemetryRollupRepository
 	RefreshTokens    *RefreshTokenRepository
 	IngestionJobs    *IngestionJobRepository
 }
@@ -24,6 +25,7 @@ func NewRepositories(pool *Pool) *Repositories {
 		Deployments:      NewDeploymentRepository(pool),
 		InferenceRuns:    NewInferenceRunRepository(pool),
 		TelemetrySamples: NewTelemetrySampleRepository(pool),
+		TelemetryRollups: NewTelemetryRollupRepository(pool),
 		RefreshTokens:    NewRefreshTokenRepository(pool),
 		IngestionJobs:    NewIngestionJobRepository(pool),
 	}

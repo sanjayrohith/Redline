@@ -13,6 +13,11 @@ type Deployment struct {
 	State        string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	// GPUModel is the hardware profile ("A100", "H100", ...) this
+	// deployment was placed onto, set once scheduling picks a node.
+	// Telemetry rollups group by it alongside model_id, since the same
+	// model's latency and throughput differ meaningfully by hardware.
+	GPUModel *string
 }
 
 // DeploymentRepository performs typed CRUD against the deployments table.
@@ -30,9 +35,9 @@ func (r *DeploymentRepository) Create(ctx context.Context, modelID string) (*Dep
 	var d Deployment
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO deployments (model_id) VALUES ($1)
-		 RETURNING id::text, model_id::text, allocation_id, state, created_at, updated_at`,
+		 RETURNING id::text, model_id::text, allocation_id, state, created_at, updated_at, gpu_model`,
 		modelID,
-	).Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt, &d.GPUModel)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -43,10 +48,10 @@ func (r *DeploymentRepository) Create(ctx context.Context, modelID string) (*Dep
 func (r *DeploymentRepository) GetByID(ctx context.Context, id string) (*Deployment, error) {
 	var d Deployment
 	err := r.pool.QueryRow(ctx,
-		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at
+		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at, gpu_model
 		 FROM deployments WHERE id = $1`,
 		id,
-	).Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt, &d.GPUModel)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -83,10 +88,25 @@ func (r *DeploymentRepository) SetAllocationID(ctx context.Context, id, allocati
 	return nil
 }
 
+// SetGPUModel records the hardware profile a deployment was placed onto.
+func (r *DeploymentRepository) SetGPUModel(ctx context.Context, id, gpuModel string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE deployments SET gpu_model = $2, updated_at = now() WHERE id = $1`,
+		id, gpuModel,
+	)
+	if err != nil {
+		return mapError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListByState returns every deployment currently in state, newest first.
 func (r *DeploymentRepository) ListByState(ctx context.Context, state string) ([]Deployment, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at
+		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at, gpu_model
 		 FROM deployments WHERE state = $1 ORDER BY created_at DESC`,
 		state,
 	)
@@ -98,7 +118,7 @@ func (r *DeploymentRepository) ListByState(ctx context.Context, state string) ([
 	var deployments []Deployment
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt, &d.GPUModel); err != nil {
 			return nil, mapError(err)
 		}
 		deployments = append(deployments, d)
@@ -115,7 +135,7 @@ func (r *DeploymentRepository) ListByState(ctx context.Context, state string) ([
 // have a live Nomad allocation backing it, if any.
 func (r *DeploymentRepository) ListActive(ctx context.Context) ([]Deployment, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at
+		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at, gpu_model
 		 FROM deployments WHERE state NOT IN ('terminated', 'failed') ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -126,7 +146,7 @@ func (r *DeploymentRepository) ListActive(ctx context.Context) ([]Deployment, er
 	var deployments []Deployment
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt, &d.GPUModel); err != nil {
 			return nil, mapError(err)
 		}
 		deployments = append(deployments, d)
@@ -141,7 +161,7 @@ func (r *DeploymentRepository) ListActive(ctx context.Context) ([]Deployment, er
 // ListByModel returns every deployment for modelID, newest first.
 func (r *DeploymentRepository) ListByModel(ctx context.Context, modelID string) ([]Deployment, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at
+		`SELECT id::text, model_id::text, allocation_id, state, created_at, updated_at, gpu_model
 		 FROM deployments WHERE model_id = $1 ORDER BY created_at DESC`,
 		modelID,
 	)
@@ -153,7 +173,7 @@ func (r *DeploymentRepository) ListByModel(ctx context.Context, modelID string) 
 	var deployments []Deployment
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.ModelID, &d.AllocationID, &d.State, &d.CreatedAt, &d.UpdatedAt, &d.GPUModel); err != nil {
 			return nil, mapError(err)
 		}
 		deployments = append(deployments, d)
