@@ -161,12 +161,15 @@ func TestRepositories_RoundTrip(t *testing.T) {
 			t.Errorf("State = %q, want ready", updated.State)
 		}
 
-		run, err := repos.InferenceRuns.Create(ctx, dep.ID, m.ID, u.ID)
+		run, err := repos.InferenceRuns.Create(ctx, dep.ID, m.ID, u.ID, "alloc-abc123")
 		if err != nil {
 			t.Fatalf("create run: %v", err)
 		}
 		if run.CompletedAt != nil {
 			t.Error("CompletedAt should be nil for a fresh run")
+		}
+		if run.AllocationID == nil || *run.AllocationID != "alloc-abc123" {
+			t.Errorf("AllocationID = %v, want alloc-abc123", run.AllocationID)
 		}
 
 		ttft := 42.5
@@ -187,18 +190,32 @@ func TestRepositories_RoundTrip(t *testing.T) {
 			t.Error("TPOTMs should be nil, it was never set")
 		}
 
-		if err := repos.InferenceRuns.Complete(ctx, run.ID, 10, 20); err != nil {
-			t.Fatalf("Complete() error = %v", err)
+		tpot := 12.3
+		vramPeak := int64(20 << 30)
+		if err := repos.InferenceRuns.CompleteWithTelemetry(ctx, run.ID, db.RunTelemetry{
+			PromptTokens: 10, CompletionTokens: 20,
+			TTFTMs: &ttft, TPOTMs: &tpot, VRAMPeakBytes: &vramPeak,
+		}); err != nil {
+			t.Fatalf("CompleteWithTelemetry() error = %v", err)
 		}
 		completed, err := repos.InferenceRuns.GetByID(ctx, run.ID)
 		if err != nil {
 			t.Fatalf("GetByID() error = %v", err)
 		}
 		if completed.CompletedAt == nil {
-			t.Error("CompletedAt should be set after Complete()")
+			t.Error("CompletedAt should be set after CompleteWithTelemetry()")
 		}
 		if completed.PromptTokens != 10 || completed.CompletionTokens != 20 {
 			t.Errorf("tokens = (%d, %d), want (10, 20)", completed.PromptTokens, completed.CompletionTokens)
+		}
+		if completed.TTFTMs == nil || *completed.TTFTMs != ttft {
+			t.Errorf("TTFTMs = %v, want %v", completed.TTFTMs, ttft)
+		}
+		if completed.TPOTMs == nil || *completed.TPOTMs != tpot {
+			t.Errorf("TPOTMs = %v, want %v", completed.TPOTMs, tpot)
+		}
+		if completed.VRAMPeakBytes == nil || *completed.VRAMPeakBytes != vramPeak {
+			t.Errorf("VRAMPeakBytes = %v, want %v", completed.VRAMPeakBytes, vramPeak)
 		}
 	})
 
