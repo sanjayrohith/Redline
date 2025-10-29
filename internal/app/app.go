@@ -80,6 +80,9 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		health.Check{Name: "redis", Fn: redisClient.HealthCheck},
 	)))
 
+	metricsRegistry := metrics.NewRegistry()
+	inferenceMetrics := metrics.NewInferenceCollectors(metricsRegistry)
+
 	backend := inference.NewMockBackend(cfg.MockBackendTokenDelay)
 	limiter := ratelimit.NewLimiter(redisClient)
 	chatHandler := httpmw.APIKeyAuth(repos.APIKeys)(
@@ -87,6 +90,11 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 			api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
 				MaxSequenceLength: cfg.MaxSequenceLength,
 				GenerationTimeout: cfg.GenerationTimeout,
+				TTFT:              inferenceMetrics,
+				// MockBackend serves at no quantized precision - the
+				// mock exists to exercise the request path in CI, not
+				// to model a real deployment's precision choice.
+				Quantization: "none",
 			}),
 		),
 	)
@@ -94,7 +102,6 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	rt.Mux.Handle("GET /v1/models", httpmw.APIKeyAuth(repos.APIKeys)(api.ModelsHandler(repos.Models)))
 
-	metricsRegistry := metrics.NewRegistry()
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", metricsRegistry.Handler())
 

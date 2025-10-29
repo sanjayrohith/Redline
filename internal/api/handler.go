@@ -21,6 +21,24 @@ import (
 type ChatCompletionsLimits struct {
 	MaxSequenceLength int
 	GenerationTimeout time.Duration
+
+	// TTFT, if non-nil, records each streamed request's admission-to-
+	// first-token latency. Nil means "don't record" - a deployment with
+	// no metrics registry wired up still serves traffic correctly.
+	TTFT TTFTRecorder
+	// Quantization labels every TTFT observation this handler records:
+	// the precision this deployment's resident engine actually runs at,
+	// fixed for the handler's lifetime rather than per-request, since a
+	// single backend instance serves one deployment at one precision.
+	Quantization string
+}
+
+// TTFTRecorder records one request's observed time-to-first-token
+// latency, labeled by model and quantization. metrics.InferenceCollectors
+// implements this; declared here, narrow to just what this package
+// needs, so api does not import the metrics/prometheus stack directly.
+type TTFTRecorder interface {
+	ObserveTimeToFirstToken(model, quantization string, d time.Duration)
 }
 
 // ChatCompletionsHandler wires the OpenAI-compatible non-streaming
@@ -30,6 +48,7 @@ type ChatCompletionsLimits struct {
 // middleware around this handler, not here.
 func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLimits) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		admittedAt := time.Now()
 		requestID, _ := httpmw.RequestIDFromContext(r.Context())
 
 		var req ChatCompletionRequest
@@ -60,7 +79,7 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 		}
 
 		if req.Stream {
-			streamChatCompletion(genCtx, w, backend, requestID, req)
+			streamChatCompletion(genCtx, w, backend, requestID, req, admittedAt, limits.TTFT, limits.Quantization)
 			return
 		}
 
@@ -109,7 +128,7 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 // generation failure has no HTTP status left to report through - the
 // stream simply ends without its normal chunks, which is the same
 // failure signature a client sees for a plain dropped connection.
-func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend inference.Backend, requestID string, req ChatCompletionRequest) {
+func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend inference.Backend, requestID string, req ChatCompletionRequest, admittedAt time.Time, ttft TTFTRecorder, quantization string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		apierror.Write(w, http.StatusInternalServerError, apierror.CodeInternal, "streaming not supported", requestID)
@@ -144,6 +163,7 @@ func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend in
 	id := "chatcmpl-" + requestID
 	created := time.Now().Unix()
 	first := true
+	ttftRecorded := false
 
 	for ev := range events {
 		if ev.Err != nil {
@@ -155,6 +175,12 @@ func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend in
 			if first {
 				delta.Role = "assistant"
 				first = false
+			}
+			if !ttftRecorded && ev.Content != "" {
+				if ttft != nil {
+					ttft.ObserveTimeToFirstToken(req.Model, quantization, time.Since(admittedAt))
+				}
+				ttftRecorded = true
 			}
 			writeSSEChunk(w, flusher, ChatCompletionChunk{
 				ID: id, Object: "chat.completion.chunk", Created: created, Model: req.Model,
