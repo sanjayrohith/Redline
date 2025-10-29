@@ -51,9 +51,10 @@ func TestTelemetryRollupRepository_ComputeModelRollups(t *testing.T) {
 		}
 		tpot := ttft // same distribution for simplicity
 		vramPeak := int64(10 << 30)
+		cost := 0.01
 		if err := repos.InferenceRuns.CompleteWithTelemetry(ctx, run.ID, db.RunTelemetry{
 			PromptTokens: 5, CompletionTokens: 10,
-			TTFTMs: &ttft, TPOTMs: &tpot, VRAMPeakBytes: &vramPeak,
+			TTFTMs: &ttft, TPOTMs: &tpot, VRAMPeakBytes: &vramPeak, CostUSD: &cost,
 		}); err != nil {
 			t.Fatalf("CompleteWithTelemetry() error = %v", err)
 		}
@@ -88,6 +89,9 @@ func TestTelemetryRollupRepository_ComputeModelRollups(t *testing.T) {
 	}
 	if r.ThroughputTokensPerSec == nil || *r.ThroughputTokensPerSec <= 0 {
 		t.Errorf("ThroughputTokensPerSec = %v, want > 0", r.ThroughputTokensPerSec)
+	}
+	if r.TotalCostUSD == nil || (*r.TotalCostUSD-0.05) > 1e-9 || (0.05-*r.TotalCostUSD) > 1e-9 {
+		t.Errorf("TotalCostUSD = %v, want ~0.05 (5 runs at $0.01 each)", r.TotalCostUSD)
 	}
 }
 

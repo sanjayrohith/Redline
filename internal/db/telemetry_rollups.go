@@ -29,6 +29,9 @@ type ModelRollup struct {
 	// an average of per-run rates, since a handful of slow runs
 	// shouldn't be weighted the same as many fast ones.
 	ThroughputTokensPerSec *float64
+	// TotalCostUSD sums every run's attributed cost (inference_runs.cost_usd)
+	// in the group, for cost-per-model, cost-per-hardware-profile comparison.
+	TotalCostUSD *float64
 }
 
 // TelemetryRollupRepository computes aggregate telemetry across
@@ -58,7 +61,8 @@ func (r *TelemetryRollupRepository) ComputeModelRollups(ctx context.Context, win
 		     percentile_cont(0.5)  WITHIN GROUP (ORDER BY ir.tpot_ms) AS tpot_p50,
 		     percentile_cont(0.95) WITHIN GROUP (ORDER BY ir.tpot_ms) AS tpot_p95,
 		     percentile_cont(0.99) WITHIN GROUP (ORDER BY ir.tpot_ms) AS tpot_p99,
-		     SUM(ir.completion_tokens) / NULLIF(EXTRACT(EPOCH FROM SUM(ir.completed_at - ir.started_at)), 0) AS throughput_tokens_per_sec
+		     SUM(ir.completion_tokens) / NULLIF(EXTRACT(EPOCH FROM SUM(ir.completed_at - ir.started_at)), 0) AS throughput_tokens_per_sec,
+		     SUM(ir.cost_usd) AS total_cost_usd
 		 FROM inference_runs ir
 		 JOIN deployments d ON d.id = ir.deployment_id
 		 WHERE ir.completed_at IS NOT NULL
@@ -78,7 +82,7 @@ func (r *TelemetryRollupRepository) ComputeModelRollups(ctx context.Context, win
 			&rollup.ModelID, &rollup.GPUModel, &rollup.RunCount,
 			&rollup.TTFTP50Ms, &rollup.TTFTP95Ms, &rollup.TTFTP99Ms,
 			&rollup.TPOTP50Ms, &rollup.TPOTP95Ms, &rollup.TPOTP99Ms,
-			&rollup.ThroughputTokensPerSec,
+			&rollup.ThroughputTokensPerSec, &rollup.TotalCostUSD,
 		); err != nil {
 			return nil, mapError(err)
 		}

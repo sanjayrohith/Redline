@@ -1,0 +1,1 @@
+ALTER TABLE inference_runs ADD COLUMN cost_usd DOUBLE PRECISION;

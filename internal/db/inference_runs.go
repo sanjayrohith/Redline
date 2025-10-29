@@ -32,6 +32,11 @@ type InferenceRun struct {
 	// VRAMPeakBytes is the highest VRAM usage telemetry_samples observed
 	// for this run.
 	VRAMPeakBytes *int64
+	// CostUSD attributes a concrete dollar cost to this run: allocation
+	// wall time multiplied by the node's configured hourly rate (see
+	// billing.ComputeCost), computed by the caller at completion time and
+	// persisted here rather than recomputed on every read.
+	CostUSD *float64
 }
 
 // InferenceRunRepository performs typed CRUD against the inference_runs table.
@@ -52,11 +57,11 @@ func (r *InferenceRunRepository) Create(ctx context.Context, deploymentID, model
 		`INSERT INTO inference_runs (deployment_id, model_id, user_id, allocation_id) VALUES ($1, $2, $3, $4)
 		 RETURNING id::text, deployment_id::text, model_id::text, user_id::text,
 		           started_at, completed_at, prompt_tokens, completion_tokens,
-		           allocation_id, ttft_ms, tpot_ms, vram_peak_bytes`,
+		           allocation_id, ttft_ms, tpot_ms, vram_peak_bytes, cost_usd`,
 		deploymentID, modelID, userID, allocationID,
 	).Scan(&run.ID, &run.DeploymentID, &run.ModelID, &run.UserID,
 		&run.StartedAt, &run.CompletedAt, &run.PromptTokens, &run.CompletionTokens,
-		&run.AllocationID, &run.TTFTMs, &run.TPOTMs, &run.VRAMPeakBytes)
+		&run.AllocationID, &run.TTFTMs, &run.TPOTMs, &run.VRAMPeakBytes, &run.CostUSD)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -69,12 +74,12 @@ func (r *InferenceRunRepository) GetByID(ctx context.Context, id string) (*Infer
 	err := r.pool.QueryRow(ctx,
 		`SELECT id::text, deployment_id::text, model_id::text, user_id::text,
 		        started_at, completed_at, prompt_tokens, completion_tokens,
-		        allocation_id, ttft_ms, tpot_ms, vram_peak_bytes
+		        allocation_id, ttft_ms, tpot_ms, vram_peak_bytes, cost_usd
 		 FROM inference_runs WHERE id = $1`,
 		id,
 	).Scan(&run.ID, &run.DeploymentID, &run.ModelID, &run.UserID,
 		&run.StartedAt, &run.CompletedAt, &run.PromptTokens, &run.CompletionTokens,
-		&run.AllocationID, &run.TTFTMs, &run.TPOTMs, &run.VRAMPeakBytes)
+		&run.AllocationID, &run.TTFTMs, &run.TPOTMs, &run.VRAMPeakBytes, &run.CostUSD)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -91,6 +96,8 @@ type RunTelemetry struct {
 	TTFTMs           *float64
 	TPOTMs           *float64
 	VRAMPeakBytes    *int64
+	// CostUSD is the run's attributed dollar cost - see billing.ComputeCost.
+	CostUSD *float64
 }
 
 // CompleteWithTelemetry stamps a run finished, writing its final token
@@ -101,9 +108,9 @@ func (r *InferenceRunRepository) CompleteWithTelemetry(ctx context.Context, id s
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE inference_runs
 		 SET completed_at = now(), prompt_tokens = $2, completion_tokens = $3,
-		     ttft_ms = $4, tpot_ms = $5, vram_peak_bytes = $6
+		     ttft_ms = $4, tpot_ms = $5, vram_peak_bytes = $6, cost_usd = $7
 		 WHERE id = $1`,
-		id, t.PromptTokens, t.CompletionTokens, t.TTFTMs, t.TPOTMs, t.VRAMPeakBytes,
+		id, t.PromptTokens, t.CompletionTokens, t.TTFTMs, t.TPOTMs, t.VRAMPeakBytes, t.CostUSD,
 	)
 	if err != nil {
 		return mapError(err)
