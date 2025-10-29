@@ -26,6 +26,9 @@ type ChatCompletionsLimits struct {
 	// first-token latency. Nil means "don't record" - a deployment with
 	// no metrics registry wired up still serves traffic correctly.
 	TTFT TTFTRecorder
+	// TPOT, if non-nil, records each gap between consecutive tokens
+	// during a streamed request's decode phase.
+	TPOT TPOTRecorder
 	// Quantization labels every TTFT observation this handler records:
 	// the precision this deployment's resident engine actually runs at,
 	// fixed for the handler's lifetime rather than per-request, since a
@@ -39,6 +42,13 @@ type ChatCompletionsLimits struct {
 // needs, so api does not import the metrics/prometheus stack directly.
 type TTFTRecorder interface {
 	ObserveTimeToFirstToken(model, quantization string, d time.Duration)
+}
+
+// TPOTRecorder records one observed gap between two consecutive tokens
+// of the same streamed response's decode phase, labeled by model and
+// quantization. metrics.InferenceCollectors implements this.
+type TPOTRecorder interface {
+	ObserveInterTokenLatency(model, quantization string, d time.Duration)
 }
 
 // ChatCompletionsHandler wires the OpenAI-compatible non-streaming
@@ -79,7 +89,7 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 		}
 
 		if req.Stream {
-			streamChatCompletion(genCtx, w, backend, requestID, req, admittedAt, limits.TTFT, limits.Quantization)
+			streamChatCompletion(genCtx, w, backend, requestID, req, admittedAt, limits.TTFT, limits.TPOT, limits.Quantization)
 			return
 		}
 
@@ -128,7 +138,7 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 // generation failure has no HTTP status left to report through - the
 // stream simply ends without its normal chunks, which is the same
 // failure signature a client sees for a plain dropped connection.
-func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend inference.Backend, requestID string, req ChatCompletionRequest, admittedAt time.Time, ttft TTFTRecorder, quantization string) {
+func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend inference.Backend, requestID string, req ChatCompletionRequest, admittedAt time.Time, ttft TTFTRecorder, tpot TPOTRecorder, quantization string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		apierror.Write(w, http.StatusInternalServerError, apierror.CodeInternal, "streaming not supported", requestID)
@@ -164,6 +174,7 @@ func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend in
 	created := time.Now().Unix()
 	first := true
 	ttftRecorded := false
+	var lastTokenAt time.Time
 
 	for ev := range events {
 		if ev.Err != nil {
@@ -176,11 +187,17 @@ func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend in
 				delta.Role = "assistant"
 				first = false
 			}
-			if !ttftRecorded && ev.Content != "" {
-				if ttft != nil {
-					ttft.ObserveTimeToFirstToken(req.Model, quantization, time.Since(admittedAt))
+			if ev.Content != "" {
+				now := time.Now()
+				if !ttftRecorded {
+					if ttft != nil {
+						ttft.ObserveTimeToFirstToken(req.Model, quantization, now.Sub(admittedAt))
+					}
+					ttftRecorded = true
+				} else if tpot != nil {
+					tpot.ObserveInterTokenLatency(req.Model, quantization, now.Sub(lastTokenAt))
 				}
-				ttftRecorded = true
+				lastTokenAt = now
 			}
 			writeSSEChunk(w, flusher, ChatCompletionChunk{
 				ID: id, Object: "chat.completion.chunk", Created: created, Model: req.Model,

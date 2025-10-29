@@ -28,3 +28,22 @@ func TestInferenceCollectors_ObserveTimeToFirstToken_ExposedWithLabels(t *testin
 		t.Errorf("body missing expected labels; body:\n%s", body)
 	}
 }
+
+func TestInferenceCollectors_ObserveInterTokenLatency_ExposedWithLabels(t *testing.T) {
+	reg := metrics.NewRegistry()
+	collectors := metrics.NewInferenceCollectors(reg)
+
+	collectors.ObserveInterTokenLatency("llama-2-7b", "fp8", 20*time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	reg.Handler().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `redline_inter_token_latency_seconds`) {
+		t.Fatalf("body missing the inter-token-latency metric family; body:\n%s", body)
+	}
+	if !strings.Contains(body, `model="llama-2-7b"`) || !strings.Contains(body, `quantization="fp8"`) {
+		t.Errorf("body missing expected labels; body:\n%s", body)
+	}
+}

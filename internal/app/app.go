@@ -91,6 +91,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 				MaxSequenceLength: cfg.MaxSequenceLength,
 				GenerationTimeout: cfg.GenerationTimeout,
 				TTFT:              inferenceMetrics,
+				TPOT:              inferenceMetrics,
 				// MockBackend serves at no quantized precision - the
 				// mock exists to exercise the request path in CI, not
 				// to model a real deployment's precision choice.
