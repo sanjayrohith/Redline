@@ -3,6 +3,7 @@ module github.com/sanjayrohith/redline
 go 1.27.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hashicorp/nomad/api v0.0.0-20260821123358-aa026cc99cfb
 	github.com/jackc/pgx/v5 v5.10.0
