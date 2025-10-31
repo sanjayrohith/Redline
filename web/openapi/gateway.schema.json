@@ -1,0 +1,88 @@
+{
+  "$comment": "Hand-maintained mirror of the gateway's wire types (internal/api/*.go). scripts/generate-client.mjs reads this file and emits src/lib/api/types.ts and src/lib/api/client.ts, so the frontend and gateway can only drift apart if this file falls out of sync with the Go source - not silently at the call site.",
+  "types": {
+    "ChatMessage": {
+      "role": "string",
+      "content": "string"
+    },
+    "ChatCompletionRequest": {
+      "model": "string",
+      "messages": "ChatMessage[]",
+      "temperature?": "number",
+      "top_p?": "number",
+      "max_tokens?": "number",
+      "stream?": "boolean"
+    },
+    "ChatCompletionUsage": {
+      "prompt_tokens": "number",
+      "completion_tokens": "number",
+      "total_tokens": "number"
+    },
+    "ChatCompletionChoice": {
+      "index": "number",
+      "message": "ChatMessage",
+      "finish_reason": "string"
+    },
+    "ChatCompletionResponse": {
+      "id": "string",
+      "object": "string",
+      "created": "number",
+      "model": "string",
+      "choices": "ChatCompletionChoice[]",
+      "usage": "ChatCompletionUsage"
+    },
+    "ChatCompletionChunkDelta": {
+      "role?": "string",
+      "content?": "string"
+    },
+    "ChatCompletionChunkChoice": {
+      "index": "number",
+      "delta": "ChatCompletionChunkDelta",
+      "finish_reason": "string | null"
+    },
+    "ChatCompletionChunk": {
+      "id": "string",
+      "object": "string",
+      "created": "number",
+      "model": "string",
+      "choices": "ChatCompletionChunkChoice[]",
+      "usage?": "ChatCompletionUsage"
+    },
+    "ModelObject": {
+      "id": "string",
+      "object": "string",
+      "created": "number",
+      "owned_by": "string"
+    },
+    "ModelListResponse": {
+      "object": "string",
+      "data": "ModelObject[]"
+    },
+    "APIError": {
+      "error": "APIErrorDetail"
+    },
+    "APIErrorDetail": {
+      "message": "string",
+      "type": "string",
+      "code": "string",
+      "request_id?": "string"
+    }
+  },
+  "endpoints": [
+    {
+      "name": "createChatCompletion",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "apiKey",
+      "request": "ChatCompletionRequest",
+      "response": "ChatCompletionResponse"
+    },
+    {
+      "name": "listModels",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "apiKey",
+      "response": "ModelListResponse"
+    }
+  ]
+}
