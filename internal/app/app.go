@@ -103,6 +103,11 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	rt.Mux.Handle("GET /v1/models", httpmw.APIKeyAuth(repos.APIKeys)(api.ModelsHandler(repos.Models)))
 
+	authCookies := api.AuthCookieOptions{Secure: cfg.Environment != "development"}
+	rt.Mux.Handle("POST /v1/auth/login", api.LoginHandler(repos.Users, sessions, authCookies))
+	rt.Mux.Handle("POST /v1/auth/refresh", api.RefreshHandler(sessions, authCookies))
+	rt.Mux.Handle("POST /v1/auth/logout", api.LogoutHandler(sessions, authCookies))
+
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", metricsRegistry.Handler())
 

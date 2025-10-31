@@ -72,8 +72,7 @@ export interface APIError {
 }
 
 export interface APIErrorDetail {
-  message: string;
-  type: string;
   code: string;
+  message: string;
   request_id?: string;
 }

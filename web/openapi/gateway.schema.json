@@ -62,9 +62,8 @@
       "error": "APIErrorDetail"
     },
     "APIErrorDetail": {
-      "message": "string",
-      "type": "string",
       "code": "string",
+      "message": "string",
       "request_id?": "string"
     }
   },
