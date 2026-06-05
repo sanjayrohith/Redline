@@ -76,3 +76,21 @@ export interface APIErrorDetail {
   message: string;
   request_id?: string;
 }
+
+export interface APIKeyView {
+  id: string;
+  display_prefix: string;
+  scopes: string[];
+  last_used_at?: string;
+  revoked_at?: string;
+  created_at: string;
+  key?: string;
+}
+
+export interface APIKeyListResponse {
+  data: APIKeyView[];
+}
+
+export interface CreateAPIKeyRequest {
+  scopes: string[];
+}

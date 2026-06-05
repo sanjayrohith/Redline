@@ -94,11 +94,19 @@ function renderClient() {
   ];
 
   for (const endpoint of schema.endpoints) {
-    const argType = endpoint.request ? `body: ${endpoint.request}` : "";
+    const pathParams = endpoint.pathParams ?? [];
+    const args = [
+      ...pathParams.map((p) => `${p}: string`),
+      ...(endpoint.request ? [`body: ${endpoint.request}`] : []),
+    ].join(", ");
     const returnType = endpoint.response ?? "void";
+    let urlExpr = `\`\${this.baseURL}${endpoint.path}\``;
+    for (const p of pathParams) {
+      urlExpr = urlExpr.replace(`{${p}}`, `\${encodeURIComponent(${p})}`);
+    }
     lines.push(
-      `  async ${endpoint.name}(${argType}): Promise<${returnType}> {`,
-      `    const res = await fetch(\`\${this.baseURL}${endpoint.path}\`, {`,
+      `  async ${endpoint.name}(${args}): Promise<${returnType}> {`,
+      `    const res = await fetch(${urlExpr}, {`,
       `      method: "${endpoint.method}",`,
       `      headers: this.headers(),`,
       endpoint.request ? `      body: JSON.stringify(body),` : `      body: undefined,`,

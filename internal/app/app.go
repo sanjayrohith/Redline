@@ -108,6 +108,16 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	rt.Mux.Handle("POST /v1/auth/refresh", api.RefreshHandler(sessions, authCookies))
 	rt.Mux.Handle("POST /v1/auth/logout", api.LogoutHandler(sessions, authCookies))
 
+	sessionCfg := auth.SessionConfig{
+		SigningKey: []byte(cfg.JWTSigningKey),
+		Issuer:     cfg.JWTIssuer,
+		Audience:   cfg.JWTAudience,
+	}
+	browserAuth := httpmw.JWTAuth(sessionCfg)
+	rt.Mux.Handle("POST /v1/api-keys", browserAuth(api.CreateAPIKeyHandler(repos.APIKeys)))
+	rt.Mux.Handle("GET /v1/api-keys", browserAuth(api.ListAPIKeysHandler(repos.APIKeys)))
+	rt.Mux.Handle("DELETE /v1/api-keys/{id}", browserAuth(api.RevokeAPIKeyHandler(repos.APIKeys)))
+
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", metricsRegistry.Handler())
 

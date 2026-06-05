@@ -4,6 +4,9 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
   ModelListResponse,
+  CreateAPIKeyRequest,
+  APIKeyView,
+  APIKeyListResponse,
 } from "./types";
 
 export class APIError extends Error {
@@ -76,6 +79,38 @@ export class GatewayClient {
     });
     if (!res.ok) return this.raise(res);
     return (await res.json()) as ModelListResponse;
+  }
+
+  async createAPIKey(body: CreateAPIKeyRequest): Promise<APIKeyView> {
+    const res = await fetch(`${this.baseURL}/v1/api-keys`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as APIKeyView;
+  }
+
+  async listAPIKeys(): Promise<APIKeyListResponse> {
+    const res = await fetch(`${this.baseURL}/v1/api-keys`, {
+      method: "GET",
+      headers: this.headers(),
+      body: undefined,
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as APIKeyListResponse;
+  }
+
+  async revokeAPIKey(id: string): Promise<void> {
+    const res = await fetch(`${this.baseURL}/v1/api-keys/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: this.headers(),
+      body: undefined,
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
   }
 
 }
