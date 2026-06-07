@@ -7,6 +7,8 @@ import type {
   CreateAPIKeyRequest,
   APIKeyView,
   APIKeyListResponse,
+  CreateIngestionRequest,
+  IngestionJobView,
 } from "./types";
 
 export class APIError extends Error {
@@ -111,6 +113,28 @@ export class GatewayClient {
       credentials: "include",
     });
     if (!res.ok) return this.raise(res);
+  }
+
+  async createIngestion(body: CreateIngestionRequest): Promise<IngestionJobView> {
+    const res = await fetch(`${this.baseURL}/v1/ingestions`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as IngestionJobView;
+  }
+
+  async getIngestion(id: string): Promise<IngestionJobView> {
+    const res = await fetch(`${this.baseURL}/v1/ingestions/${encodeURIComponent(id)}`, {
+      method: "GET",
+      headers: this.headers(),
+      body: undefined,
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as IngestionJobView;
   }
 
 }

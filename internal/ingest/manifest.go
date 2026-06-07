@@ -101,6 +101,12 @@ func (c *Client) FetchConfig(ctx context.Context, ref Reference) (*ModelConfig, 
 	return &cfg, nil
 }
 
+// FileURL returns the direct download URL for path within ref's
+// repository, in the same "resolve" form FetchConfig itself fetches from.
+func (c *Client) FileURL(ref Reference, path string) string {
+	return fmt.Sprintf("%s/%s/resolve/%s/%s", c.baseURL, ref.RepoID(), url.PathEscape(ref.Revision), path)
+}
+
 func (c *Client) fetchRevisionSHA(ctx context.Context, ref Reference) (string, error) {
 	endpoint := fmt.Sprintf("%s/api/models/%s/revision/%s", c.baseURL, ref.RepoID(), url.PathEscape(ref.Revision))
 

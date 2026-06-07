@@ -94,3 +94,19 @@ export interface APIKeyListResponse {
 export interface CreateAPIKeyRequest {
   scopes: string[];
 }
+
+export interface IngestionJobView {
+  id: string;
+  repo_url: string;
+  revision: string;
+  state: string;
+  bytes_total: number;
+  bytes_downloaded: number;
+  error_message?: string;
+  model_id?: string;
+}
+
+export interface CreateIngestionRequest {
+  repo_url: string;
+  revision?: string;
+}

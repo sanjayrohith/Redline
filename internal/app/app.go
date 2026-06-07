@@ -18,12 +18,16 @@ import (
 	"github.com/sanjayrohith/redline/internal/health"
 	"github.com/sanjayrohith/redline/internal/httpmw"
 	"github.com/sanjayrohith/redline/internal/inference"
+	"github.com/sanjayrohith/redline/internal/ingest"
 	"github.com/sanjayrohith/redline/internal/logging"
 	"github.com/sanjayrohith/redline/internal/metrics"
+	"github.com/sanjayrohith/redline/internal/queue"
 	"github.com/sanjayrohith/redline/internal/ratelimit"
 	"github.com/sanjayrohith/redline/internal/redisclient"
 	"github.com/sanjayrohith/redline/internal/router"
 )
+
+const ingestionQueueName = "ingestion"
 
 // App holds every dependency the gateway needs to serve traffic and owns
 // the HTTP server's start/stop lifecycle.
@@ -37,6 +41,7 @@ type App struct {
 	sessions      *auth.SessionIssuer
 	router        *router.Router
 	metrics       *metrics.Registry
+	ingestionPool *queue.WorkerPool
 }
 
 // New constructs the dependency graph and returns a ready-to-run App.
@@ -118,6 +123,21 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	rt.Mux.Handle("GET /v1/api-keys", browserAuth(api.ListAPIKeysHandler(repos.APIKeys)))
 	rt.Mux.Handle("DELETE /v1/api-keys/{id}", browserAuth(api.RevokeAPIKeyHandler(repos.APIKeys)))
 
+	ingestionQueue := queue.New(redisClient, ingestionQueueName, queue.Options{})
+	rt.Mux.Handle("POST /v1/ingestions", browserAuth(api.CreateIngestionHandler(repos.IngestionJobs, ingestionQueue)))
+	rt.Mux.Handle("GET /v1/ingestions/{id}", browserAuth(api.GetIngestionHandler(repos.IngestionJobs)))
+
+	manifestClient := ingest.NewClient()
+	orchestrator := ingest.NewOrchestrator(
+		manifestClient,
+		ingest.NewHTTPRangeFetcher(nil),
+		repos.IngestionJobs,
+		repos.Models,
+		repos.Models,
+		ingest.DefaultQuota,
+	)
+	ingestionPool := queue.NewWorkerPool(ingestionQueue, ingestionJobHandler(repos.IngestionJobs, orchestrator), 4, logger)
+
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", metricsRegistry.Handler())
 
@@ -132,14 +152,36 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 			Handler:           metricsMux,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-		logger:   logger,
-		dbPool:   dbPool,
-		redis:    redisClient,
-		repos:    repos,
-		sessions: sessions,
-		router:   rt,
-		metrics:  metricsRegistry,
+		logger:        logger,
+		dbPool:        dbPool,
+		redis:         redisClient,
+		repos:         repos,
+		sessions:      sessions,
+		router:        rt,
+		metrics:       metricsRegistry,
+		ingestionPool: ingestionPool,
 	}, nil
+}
+
+// ingestionJobHandler adapts Orchestrator.Run to queue.Handler: a job's
+// payload is its own id, since the durable state ingestion needs already
+// lives in the ingestion_jobs row rather than the queue payload.
+func ingestionJobHandler(jobs *db.IngestionJobRepository, orchestrator *ingest.Orchestrator) queue.Handler {
+	return func(ctx context.Context, job *queue.Job) error {
+		record, err := jobs.GetByID(ctx, job.Payload)
+		if err != nil {
+			return fmt.Errorf("app: look up ingestion job %s: %w", job.Payload, err)
+		}
+
+		ref, err := ingest.ParseReference(record.RepoURL)
+		if err != nil {
+			_ = jobs.Fail(ctx, record.ID, err.Error())
+			return nil
+		}
+		ref.Revision = record.Revision
+
+		return orchestrator.Run(ctx, record.ID, *ref)
+	}
 }
 
 // Metrics returns the App's metric collector registry, so packages
@@ -215,6 +257,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		serveErr <- nil
 	}()
+	go a.ingestionPool.Run(ctx)
 
 	a.logger.Info("gateway listening", "addr", a.server.Addr)
 	a.logger.Info("metrics listening", "addr", a.metricsServer.Addr)

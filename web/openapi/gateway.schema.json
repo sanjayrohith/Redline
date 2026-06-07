@@ -80,6 +80,20 @@
     },
     "CreateAPIKeyRequest": {
       "scopes": "string[]"
+    },
+    "IngestionJobView": {
+      "id": "string",
+      "repo_url": "string",
+      "revision": "string",
+      "state": "string",
+      "bytes_total": "number",
+      "bytes_downloaded": "number",
+      "error_message?": "string",
+      "model_id?": "string"
+    },
+    "CreateIngestionRequest": {
+      "repo_url": "string",
+      "revision?": "string"
     }
   },
   "endpoints": [
@@ -119,6 +133,22 @@
       "path": "/v1/api-keys/{id}",
       "auth": "session",
       "pathParams": ["id"]
+    },
+    {
+      "name": "createIngestion",
+      "method": "POST",
+      "path": "/v1/ingestions",
+      "auth": "session",
+      "request": "CreateIngestionRequest",
+      "response": "IngestionJobView"
+    },
+    {
+      "name": "getIngestion",
+      "method": "GET",
+      "path": "/v1/ingestions/{id}",
+      "auth": "session",
+      "pathParams": ["id"],
+      "response": "IngestionJobView"
     }
   ]
 }
