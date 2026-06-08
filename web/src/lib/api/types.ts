@@ -110,3 +110,23 @@ export interface CreateIngestionRequest {
   repo_url: string;
   revision?: string;
 }
+
+export interface ModelDetailView {
+  id: string;
+  repo_url: string;
+  revision: string;
+  revision_sha: string;
+  architecture: string;
+  parameter_count: number;
+  dtype: string;
+  vram_estimate_fp16_bytes: number;
+  vram_estimate_fp8_bytes: number;
+  vram_estimate_int4_bytes: number;
+  kv_cache_bytes: number;
+  license: string;
+  created_at: number;
+}
+
+export interface ModelCatalogResponse {
+  data: ModelDetailView[];
+}

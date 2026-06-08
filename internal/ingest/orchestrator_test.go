@@ -11,6 +11,7 @@ import (
 type fakeManifestFetcher struct {
 	manifest   *Manifest
 	config     *ModelConfig
+	license    string
 	manifestFn func(ctx context.Context, ref Reference) (*Manifest, error)
 }
 
@@ -23,6 +24,10 @@ func (f *fakeManifestFetcher) FetchManifest(ctx context.Context, ref Reference) 
 
 func (f *fakeManifestFetcher) FetchConfig(context.Context, Reference) (*ModelConfig, error) {
 	return f.config, nil
+}
+
+func (f *fakeManifestFetcher) FetchLicense(context.Context, Reference) (string, error) {
+	return f.license, nil
 }
 
 func (f *fakeManifestFetcher) FileURL(ref Reference, path string) string {
@@ -76,7 +81,8 @@ func TestOrchestrator_Run_EndToEndSuccess(t *testing.T) {
 				{Path: "model.safetensors", Size: 16_000_000},
 			},
 		},
-		config: &ModelConfig{ModelType: "llama", NumHiddenLayers: 32, NumAttentionHeads: 32, HiddenSize: 4096},
+		config:  &ModelConfig{ModelType: "llama", NumHiddenLayers: 32, NumAttentionHeads: 32, HiddenSize: 4096},
+		license: "apache-2.0",
 	}
 	jobs := &fakeJobStore{}
 	models := &fakeModelStore{}
@@ -100,6 +106,9 @@ func TestOrchestrator_Run_EndToEndSuccess(t *testing.T) {
 	}
 	if models.created.ParameterCount != 4096*4096 {
 		t.Errorf("ParameterCount = %d, want %d", models.created.ParameterCount, 4096*4096)
+	}
+	if models.created.License != "apache-2.0" {
+		t.Errorf("License = %q, want apache-2.0", models.created.License)
 	}
 	if jobs.completed == nil || *jobs.completed != "model-1" {
 		t.Errorf("completed = %v, want model-1", jobs.completed)

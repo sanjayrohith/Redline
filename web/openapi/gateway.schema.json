@@ -94,6 +94,24 @@
     "CreateIngestionRequest": {
       "repo_url": "string",
       "revision?": "string"
+    },
+    "ModelDetailView": {
+      "id": "string",
+      "repo_url": "string",
+      "revision": "string",
+      "revision_sha": "string",
+      "architecture": "string",
+      "parameter_count": "number",
+      "dtype": "string",
+      "vram_estimate_fp16_bytes": "number",
+      "vram_estimate_fp8_bytes": "number",
+      "vram_estimate_int4_bytes": "number",
+      "kv_cache_bytes": "number",
+      "license": "string",
+      "created_at": "number"
+    },
+    "ModelCatalogResponse": {
+      "data": "ModelDetailView[]"
     }
   },
   "endpoints": [
@@ -149,6 +167,21 @@
       "auth": "session",
       "pathParams": ["id"],
       "response": "IngestionJobView"
+    },
+    {
+      "name": "listDashboardModels",
+      "method": "GET",
+      "path": "/v1/dashboard/models",
+      "auth": "session",
+      "response": "ModelCatalogResponse"
+    },
+    {
+      "name": "getDashboardModel",
+      "method": "GET",
+      "path": "/v1/dashboard/models/{id}",
+      "auth": "session",
+      "pathParams": ["id"],
+      "response": "ModelDetailView"
     }
   ]
 }

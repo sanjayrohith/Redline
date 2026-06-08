@@ -123,6 +123,11 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	rt.Mux.Handle("GET /v1/api-keys", browserAuth(api.ListAPIKeysHandler(repos.APIKeys)))
 	rt.Mux.Handle("DELETE /v1/api-keys/{id}", browserAuth(api.RevokeAPIKeyHandler(repos.APIKeys)))
 
+	// Session-authed mirrors of the model catalog, for the dashboard's own
+	// pages - which carry a browser session cookie, not an API key.
+	rt.Mux.Handle("GET /v1/dashboard/models", browserAuth(api.ModelCatalogHandler(repos.Models)))
+	rt.Mux.Handle("GET /v1/dashboard/models/{id}", browserAuth(api.ModelDetailHandler(repos.Models)))
+
 	ingestionQueue := queue.New(redisClient, ingestionQueueName, queue.Options{})
 	rt.Mux.Handle("POST /v1/ingestions", browserAuth(api.CreateIngestionHandler(repos.IngestionJobs, ingestionQueue)))
 	rt.Mux.Handle("GET /v1/ingestions/{id}", browserAuth(api.GetIngestionHandler(repos.IngestionJobs)))

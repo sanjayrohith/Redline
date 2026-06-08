@@ -9,6 +9,8 @@ import type {
   APIKeyListResponse,
   CreateIngestionRequest,
   IngestionJobView,
+  ModelCatalogResponse,
+  ModelDetailView,
 } from "./types";
 
 export class APIError extends Error {
@@ -135,6 +137,28 @@ export class GatewayClient {
     });
     if (!res.ok) return this.raise(res);
     return (await res.json()) as IngestionJobView;
+  }
+
+  async listDashboardModels(): Promise<ModelCatalogResponse> {
+    const res = await fetch(`${this.baseURL}/v1/dashboard/models`, {
+      method: "GET",
+      headers: this.headers(),
+      body: undefined,
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as ModelCatalogResponse;
+  }
+
+  async getDashboardModel(id: string): Promise<ModelDetailView> {
+    const res = await fetch(`${this.baseURL}/v1/dashboard/models/${encodeURIComponent(id)}`, {
+      method: "GET",
+      headers: this.headers(),
+      body: undefined,
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as ModelDetailView;
   }
 
 }

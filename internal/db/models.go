@@ -22,6 +22,7 @@ type Model struct {
 	VRAMEstimateFP8Bytes  int64
 	VRAMEstimateInt4Bytes int64
 	KVCacheBytes          int64
+	License               string
 	CreatedAt             time.Time
 }
 
@@ -37,6 +38,7 @@ type NewModel struct {
 	VRAMEstimateFP8Bytes  int64
 	VRAMEstimateInt4Bytes int64
 	KVCacheBytes          int64
+	License               string
 }
 
 // ModelRepository performs typed CRUD against the models table.
@@ -50,12 +52,12 @@ func NewModelRepository(pool *Pool) *ModelRepository {
 }
 
 const modelColumns = `id::text, repo_url, revision, revision_sha, architecture, parameter_count, dtype,
-	vram_estimate_bytes, vram_fp8_bytes, vram_int4_bytes, kv_cache_bytes, created_at`
+	vram_estimate_bytes, vram_fp8_bytes, vram_int4_bytes, kv_cache_bytes, license, created_at`
 
 func scanModel(row interface{ Scan(...any) error }, m *Model) error {
 	var revisionSHA *string
 	if err := row.Scan(&m.ID, &m.RepoURL, &m.Revision, &revisionSHA, &m.Architecture, &m.ParameterCount, &m.Dtype,
-		&m.VRAMEstimateFP16Bytes, &m.VRAMEstimateFP8Bytes, &m.VRAMEstimateInt4Bytes, &m.KVCacheBytes, &m.CreatedAt); err != nil {
+		&m.VRAMEstimateFP16Bytes, &m.VRAMEstimateFP8Bytes, &m.VRAMEstimateInt4Bytes, &m.KVCacheBytes, &m.License, &m.CreatedAt); err != nil {
 		return err
 	}
 	if revisionSHA != nil {
@@ -74,11 +76,11 @@ func (r *ModelRepository) Create(ctx context.Context, m NewModel) (*Model, error
 	var out Model
 	err := scanModel(r.pool.QueryRow(ctx,
 		`INSERT INTO models (repo_url, revision, revision_sha, architecture, parameter_count, dtype,
-		                     vram_estimate_bytes, vram_fp8_bytes, vram_int4_bytes, kv_cache_bytes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		                     vram_estimate_bytes, vram_fp8_bytes, vram_int4_bytes, kv_cache_bytes, license)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING `+modelColumns,
 		m.RepoURL, m.Revision, revisionSHA, m.Architecture, m.ParameterCount, m.Dtype,
-		m.VRAMEstimateFP16Bytes, m.VRAMEstimateFP8Bytes, m.VRAMEstimateInt4Bytes, m.KVCacheBytes,
+		m.VRAMEstimateFP16Bytes, m.VRAMEstimateFP8Bytes, m.VRAMEstimateInt4Bytes, m.KVCacheBytes, m.License,
 	), &out)
 	if err != nil {
 		return nil, mapError(err)

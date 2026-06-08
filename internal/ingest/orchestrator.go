@@ -28,6 +28,7 @@ type ModelStore interface {
 type ManifestFetcher interface {
 	FetchManifest(ctx context.Context, ref Reference) (*Manifest, error)
 	FetchConfig(ctx context.Context, ref Reference) (*ModelConfig, error)
+	FetchLicense(ctx context.Context, ref Reference) (string, error)
 	FileURL(ref Reference, path string) string
 }
 
@@ -109,6 +110,10 @@ func (o *Orchestrator) Run(ctx context.Context, jobID string, ref Reference) err
 	if err != nil {
 		return o.fail(ctx, jobID, fmt.Errorf("ingest: fetch config: %w", err))
 	}
+	license, err := o.manifests.FetchLicense(ctx, ref)
+	if err != nil {
+		return o.fail(ctx, jobID, fmt.Errorf("ingest: fetch license: %w", err))
+	}
 
 	arch := InferArchitecture(config, header)
 	paramCount := ParameterCount(header)
@@ -129,6 +134,7 @@ func (o *Orchestrator) Run(ctx context.Context, jobID string, ref Reference) err
 		VRAMEstimateFP8Bytes:  footprint.FP8.TotalBytes,
 		VRAMEstimateInt4Bytes: footprint.INT4.TotalBytes,
 		KVCacheBytes:          footprint.FP16.KVCacheBytes,
+		License:               license,
 	})
 	if err != nil {
 		return o.fail(ctx, jobID, fmt.Errorf("ingest: create model record: %w", err))

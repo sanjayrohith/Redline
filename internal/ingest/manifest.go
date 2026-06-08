@@ -107,6 +107,31 @@ func (c *Client) FileURL(ref Reference, path string) string {
 	return fmt.Sprintf("%s/%s/resolve/%s/%s", c.baseURL, ref.RepoID(), url.PathEscape(ref.Revision), path)
 }
 
+type repoCardData struct {
+	License string `json:"license"`
+}
+
+type repoInfo struct {
+	CardData repoCardData `json:"cardData"`
+}
+
+// FetchLicense returns the repository's declared license identifier (as
+// SPDX-style tags such as "apache-2.0" or "mit"), or "" if the repository
+// declares none - a missing license is common enough on upstream hosts
+// that it must not fail ingestion outright.
+func (c *Client) FetchLicense(ctx context.Context, ref Reference) (string, error) {
+	endpoint := fmt.Sprintf("%s/api/models/%s", c.baseURL, ref.RepoID())
+
+	var info repoInfo
+	if err := c.getJSON(ctx, endpoint, &info); err != nil {
+		if errors.Is(err, ErrRepositoryNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return info.CardData.License, nil
+}
+
 func (c *Client) fetchRevisionSHA(ctx context.Context, ref Reference) (string, error) {
 	endpoint := fmt.Sprintf("%s/api/models/%s/revision/%s", c.baseURL, ref.RepoID(), url.PathEscape(ref.Revision))
 
