@@ -128,6 +128,21 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	rt.Mux.Handle("GET /v1/dashboard/models", browserAuth(api.ModelCatalogHandler(repos.Models)))
 	rt.Mux.Handle("GET /v1/dashboard/models/{id}", browserAuth(api.ModelDetailHandler(repos.Models)))
 
+	// Session-authed mirror of chat completions, so the dashboard's
+	// playground can stream generations against the same backend an API
+	// key client uses, without the browser ever holding an API key.
+	rt.Mux.Handle("POST /v1/dashboard/chat/completions",
+		browserAuth(httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("dashboard-chat"))(
+			api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
+				MaxSequenceLength: cfg.MaxSequenceLength,
+				GenerationTimeout: cfg.GenerationTimeout,
+				TTFT:              inferenceMetrics,
+				TPOT:              inferenceMetrics,
+				Quantization:      "none",
+			}),
+		)),
+	)
+
 	ingestionQueue := queue.New(redisClient, ingestionQueueName, queue.Options{})
 	rt.Mux.Handle("POST /v1/ingestions", browserAuth(api.CreateIngestionHandler(repos.IngestionJobs, ingestionQueue)))
 	rt.Mux.Handle("GET /v1/ingestions/{id}", browserAuth(api.GetIngestionHandler(repos.IngestionJobs)))
