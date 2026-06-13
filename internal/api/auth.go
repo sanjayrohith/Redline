@@ -19,8 +19,11 @@ import (
 // the cookie's HttpOnly flag itself, not merely one that reads
 // browser-accessible storage such as localStorage.
 const (
-	// AccessTokenCookie holds the short-lived signed access token.
-	AccessTokenCookie = "redline_access"
+	// AccessTokenCookie holds the short-lived signed access token. It is
+	// the same name httpmw.AccessTokenCookieName reads back on JWTAuth's
+	// cookie fallback path - defined once there since httpmw cannot
+	// import api, and mirrored here for callers of this package.
+	AccessTokenCookie = httpmw.AccessTokenCookieName
 	// RefreshTokenCookie holds the opaque, longer-lived refresh token.
 	RefreshTokenCookie = "redline_refresh"
 )

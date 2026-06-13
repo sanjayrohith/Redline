@@ -25,6 +25,7 @@ import (
 	"github.com/sanjayrohith/redline/internal/ratelimit"
 	"github.com/sanjayrohith/redline/internal/redisclient"
 	"github.com/sanjayrohith/redline/internal/router"
+	"github.com/sanjayrohith/redline/internal/telemetry"
 )
 
 const ingestionQueueName = "ingestion"
@@ -87,6 +88,8 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	metricsRegistry := metrics.NewRegistry()
 	inferenceMetrics := metrics.NewInferenceCollectors(metricsRegistry)
+	telemetryHub := telemetry.NewHub()
+	telemetryPublisher := telemetry.NewPublisher(telemetryHub, inferenceMetrics)
 
 	backend := inference.NewMockBackend(cfg.MockBackendTokenDelay)
 	limiter := ratelimit.NewLimiter(redisClient)
@@ -95,8 +98,8 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 			api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
 				MaxSequenceLength: cfg.MaxSequenceLength,
 				GenerationTimeout: cfg.GenerationTimeout,
-				TTFT:              inferenceMetrics,
-				TPOT:              inferenceMetrics,
+				TTFT:              telemetryPublisher,
+				TPOT:              telemetryPublisher,
 				// MockBackend serves at no quantized precision - the
 				// mock exists to exercise the request path in CI, not
 				// to model a real deployment's precision choice.
@@ -136,12 +139,14 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 			api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
 				MaxSequenceLength: cfg.MaxSequenceLength,
 				GenerationTimeout: cfg.GenerationTimeout,
-				TTFT:              inferenceMetrics,
-				TPOT:              inferenceMetrics,
+				TTFT:              telemetryPublisher,
+				TPOT:              telemetryPublisher,
 				Quantization:      "none",
 			}),
 		)),
 	)
+
+	rt.Mux.Handle("GET /v1/dashboard/ws/telemetry", browserAuth(telemetry.Handler(telemetryHub)))
 
 	ingestionQueue := queue.New(redisClient, ingestionQueueName, queue.Options{})
 	rt.Mux.Handle("POST /v1/ingestions", browserAuth(api.CreateIngestionHandler(repos.IngestionJobs, ingestionQueue)))

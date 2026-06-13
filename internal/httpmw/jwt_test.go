@@ -60,6 +60,57 @@ func TestJWTAuth_ValidTokenAttachesPrincipal(t *testing.T) {
 	}
 }
 
+func TestJWTAuth_FallsBackToAccessTokenCookie(t *testing.T) {
+	cfg := testSessionConfig()
+	token := issueTestToken(t, cfg, "user-1")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: AccessTokenCookieName, Value: token}) //nolint:gosec // G124: incoming request cookie in a test, not a Set-Cookie response
+
+	rec, principal := serveThrough(JWTAuth(cfg), req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if principal == nil || principal.UserID != "user-1" {
+		t.Errorf("principal = %+v, want UserID user-1", principal)
+	}
+}
+
+func TestJWTAuth_AuthorizationHeaderTakesPrecedenceOverCookie(t *testing.T) {
+	cfg := testSessionConfig()
+	headerToken := issueTestToken(t, cfg, "user-header")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+headerToken)
+	req.AddCookie(&http.Cookie{Name: AccessTokenCookieName, Value: "not-a-jwt"}) //nolint:gosec // G124: incoming request cookie in a test, not a Set-Cookie response
+
+	rec, principal := serveThrough(JWTAuth(cfg), req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if principal == nil || principal.UserID != "user-header" {
+		t.Errorf("principal = %+v, want UserID user-header", principal)
+	}
+}
+
+func TestJWTAuth_FallsBackToAccessTokenQueryParam(t *testing.T) {
+	cfg := testSessionConfig()
+	token := issueTestToken(t, cfg, "user-1")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/dashboard/ws/telemetry?access_token="+token, nil)
+
+	rec, principal := serveThrough(JWTAuth(cfg), req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if principal == nil || principal.UserID != "user-1" {
+		t.Errorf("principal = %+v, want UserID user-1", principal)
+	}
+}
+
 func TestJWTAuth_RejectsMissingToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec, principal := serveThrough(JWTAuth(testSessionConfig()), req)
