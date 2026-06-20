@@ -9,11 +9,13 @@ import (
 
 // Sample is one telemetry data point pushed to subscribers.
 type Sample struct {
-	RunID     string    `json:"run_id"`
-	TTFTMs    *float64  `json:"ttft_ms,omitempty"`
-	TPOTMs    *float64  `json:"tpot_ms,omitempty"`
-	VRAMBytes *int64    `json:"vram_bytes,omitempty"`
-	SampledAt time.Time `json:"sampled_at"`
+	RunID             string    `json:"run_id"`
+	TTFTMs            *float64  `json:"ttft_ms,omitempty"`
+	TPOTMs            *float64  `json:"tpot_ms,omitempty"`
+	VRAMBytes         *int64    `json:"vram_bytes,omitempty"`
+	VRAMTotalBytes    *int64    `json:"vram_total_bytes,omitempty"`
+	GPUUtilizationPct *float64  `json:"gpu_utilization_pct,omitempty"`
+	SampledAt         time.Time `json:"sampled_at"`
 }
 
 // subscriberBufferSize bounds how many unread samples a single slow

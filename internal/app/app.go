@@ -43,7 +43,12 @@ type App struct {
 	router        *router.Router
 	metrics       *metrics.Registry
 	ingestionPool *queue.WorkerPool
+	telemetryHub  *telemetry.Hub
 }
+
+// gpuSampleInterval is how often the GPU utilization/VRAM gauges refresh
+// over the telemetry WebSocket.
+const gpuSampleInterval = 5 * time.Second
 
 // New constructs the dependency graph and returns a ready-to-run App.
 // Database connections are established lazily, so a currently-unreachable
@@ -185,7 +190,24 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		router:        rt,
 		metrics:       metricsRegistry,
 		ingestionPool: ingestionPool,
+		telemetryHub:  telemetryHub,
 	}, nil
+}
+
+// sampleGPUs adapts metrics.SampleGPUs to telemetry.GPUSampleFunc.
+func sampleGPUs(ctx context.Context) ([]telemetry.GPUSample, error) {
+	readings, err := metrics.SampleGPUs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]telemetry.GPUSample, len(readings))
+	for i, r := range readings {
+		out[i] = telemetry.GPUSample{
+			DeviceIndex: r.DeviceIndex, UtilizationPercent: r.UtilizationPercent,
+			VRAMUsedBytes: r.VRAMUsedBytes, VRAMTotalBytes: r.VRAMTotalBytes,
+		}
+	}
+	return out, nil
 }
 
 // ingestionJobHandler adapts Orchestrator.Run to queue.Handler: a job's
@@ -283,6 +305,7 @@ func (a *App) Run(ctx context.Context) error {
 		serveErr <- nil
 	}()
 	go a.ingestionPool.Run(ctx)
+	go telemetry.PublishGPUSamples(ctx, a.telemetryHub, sampleGPUs, gpuSampleInterval)
 
 	a.logger.Info("gateway listening", "addr", a.server.Addr)
 	a.logger.Info("metrics listening", "addr", a.metricsServer.Addr)

@@ -8,6 +8,8 @@ export interface TelemetrySample {
   ttft_ms?: number;
   tpot_ms?: number;
   vram_bytes?: number;
+  vram_total_bytes?: number;
+  gpu_utilization_pct?: number;
   sampled_at: string;
 }
 
