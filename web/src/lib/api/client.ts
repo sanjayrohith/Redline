@@ -11,6 +11,8 @@ import type {
   IngestionJobView,
   ModelCatalogResponse,
   ModelDetailView,
+  CreateBenchmarkRunRequest,
+  BenchmarkRunView,
 } from "./types";
 
 export class APIError extends Error {
@@ -159,6 +161,17 @@ export class GatewayClient {
     });
     if (!res.ok) return this.raise(res);
     return (await res.json()) as ModelDetailView;
+  }
+
+  async createBenchmarkRun(body: CreateBenchmarkRunRequest): Promise<BenchmarkRunView> {
+    const res = await fetch(`${this.baseURL}/v1/dashboard/benchmarks`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as BenchmarkRunView;
   }
 
 }

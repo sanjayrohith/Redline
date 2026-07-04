@@ -112,6 +112,40 @@
     },
     "ModelCatalogResponse": {
       "data": "ModelDetailView[]"
+    },
+    "BenchmarkTaskResult": {
+      "task": "BenchmarkTask",
+      "response": "string",
+      "passed": "boolean"
+    },
+    "BenchmarkTask": {
+      "name": "string",
+      "prompt": "string",
+      "expected_substring": "string"
+    },
+    "BenchmarkRunView": {
+      "id": "string",
+      "deployment_id": "string",
+      "model_id": "string",
+      "precision": "string",
+      "temperature": "number",
+      "top_p": "number",
+      "seed?": "number",
+      "task_count": "number",
+      "passed_count": "number",
+      "score": "number",
+      "created_at": "number",
+      "tasks?": "BenchmarkTaskResult[]"
+    },
+    "CreateBenchmarkRunRequest": {
+      "deployment_id": "string",
+      "precision": "string",
+      "temperature": "number",
+      "top_p": "number",
+      "seed?": "number"
+    },
+    "BenchmarkRunListResponse": {
+      "data": "BenchmarkRunView[]"
     }
   },
   "endpoints": [
@@ -182,6 +216,14 @@
       "auth": "session",
       "pathParams": ["id"],
       "response": "ModelDetailView"
+    },
+    {
+      "name": "createBenchmarkRun",
+      "method": "POST",
+      "path": "/v1/dashboard/benchmarks",
+      "auth": "session",
+      "request": "CreateBenchmarkRunRequest",
+      "response": "BenchmarkRunView"
     }
   ]
 }

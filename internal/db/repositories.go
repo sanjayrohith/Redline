@@ -14,6 +14,7 @@ type Repositories struct {
 	TelemetryRetention *TelemetryRetentionJob
 	RefreshTokens      *RefreshTokenRepository
 	IngestionJobs      *IngestionJobRepository
+	BenchmarkRuns      *BenchmarkRunRepository
 }
 
 // NewRepositories constructs every repository bound to pool.
@@ -30,5 +31,6 @@ func NewRepositories(pool *Pool) *Repositories {
 		TelemetryRetention: NewTelemetryRetentionJob(pool),
 		RefreshTokens:      NewRefreshTokenRepository(pool),
 		IngestionJobs:      NewIngestionJobRepository(pool),
+		BenchmarkRuns:      NewBenchmarkRunRepository(pool),
 	}
 }

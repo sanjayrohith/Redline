@@ -12,6 +12,7 @@ import (
 
 	"github.com/sanjayrohith/redline/internal/api"
 	"github.com/sanjayrohith/redline/internal/auth"
+	"github.com/sanjayrohith/redline/internal/bench"
 	"github.com/sanjayrohith/redline/internal/config"
 	"github.com/sanjayrohith/redline/internal/db"
 	"github.com/sanjayrohith/redline/internal/db/migrations"
@@ -152,6 +153,10 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	)
 
 	rt.Mux.Handle("GET /v1/dashboard/ws/telemetry", browserAuth(telemetry.Handler(telemetryHub)))
+
+	rt.Mux.Handle("POST /v1/dashboard/benchmarks",
+		browserAuth(api.CreateBenchmarkRunHandler(repos.Deployments, repos.BenchmarkRuns, backend, bench.Run)))
+	rt.Mux.Handle("GET /v1/dashboard/benchmarks", browserAuth(api.ListBenchmarkRunsHandler(repos.BenchmarkRuns)))
 
 	ingestionQueue := queue.New(redisClient, ingestionQueueName, queue.Options{})
 	rt.Mux.Handle("POST /v1/ingestions", browserAuth(api.CreateIngestionHandler(repos.IngestionJobs, ingestionQueue)))

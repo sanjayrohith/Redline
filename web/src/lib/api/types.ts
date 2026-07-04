@@ -130,3 +130,42 @@ export interface ModelDetailView {
 export interface ModelCatalogResponse {
   data: ModelDetailView[];
 }
+
+export interface BenchmarkTaskResult {
+  task: BenchmarkTask;
+  response: string;
+  passed: boolean;
+}
+
+export interface BenchmarkTask {
+  name: string;
+  prompt: string;
+  expected_substring: string;
+}
+
+export interface BenchmarkRunView {
+  id: string;
+  deployment_id: string;
+  model_id: string;
+  precision: string;
+  temperature: number;
+  top_p: number;
+  seed?: number;
+  task_count: number;
+  passed_count: number;
+  score: number;
+  created_at: number;
+  tasks?: BenchmarkTaskResult[];
+}
+
+export interface CreateBenchmarkRunRequest {
+  deployment_id: string;
+  precision: string;
+  temperature: number;
+  top_p: number;
+  seed?: number;
+}
+
+export interface BenchmarkRunListResponse {
+  data: BenchmarkRunView[];
+}
