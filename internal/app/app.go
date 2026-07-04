@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"time"
 
+	nomadAPI "github.com/hashicorp/nomad/api"
+
 	"github.com/sanjayrohith/redline/internal/api"
 	"github.com/sanjayrohith/redline/internal/auth"
 	"github.com/sanjayrohith/redline/internal/bench"
@@ -23,16 +25,24 @@ import (
 	"github.com/sanjayrohith/redline/internal/ingest"
 	"github.com/sanjayrohith/redline/internal/logging"
 	"github.com/sanjayrohith/redline/internal/metrics"
+	"github.com/sanjayrohith/redline/internal/nomadclient"
 	"github.com/sanjayrohith/redline/internal/queue"
 	"github.com/sanjayrohith/redline/internal/ratelimit"
 	"github.com/sanjayrohith/redline/internal/redisclient"
 	"github.com/sanjayrohith/redline/internal/resilience"
 	"github.com/sanjayrohith/redline/internal/router"
+	"github.com/sanjayrohith/redline/internal/scheduler"
 	"github.com/sanjayrohith/redline/internal/telemetry"
 )
 
 const ingestionQueueName = "ingestion"
 const retryQueueName = "inference-retry"
+const deploymentRetryQueueName = "deployment-retry"
+
+// defaultInferenceImage is the container image every deployment's Nomad
+// job runs, pending a per-model or per-precision image selection this
+// gateway does not yet make.
+const defaultInferenceImage = "redline/vllm:latest"
 
 // stuckRequestThreshold bounds the gap between two consecutive tokens of
 // a streamed generation before resilience.Watchdog considers it stuck.
@@ -213,6 +223,23 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		ingest.DefaultQuota,
 	)
 	ingestionPool := queue.NewWorkerPool(ingestionQueue, ingestionJobHandler(repos.IngestionJobs, orchestrator), 4, logger)
+
+	nomadClient, err := nomadclient.NewClient(cfg.NomadAddr)
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
+	deploymentRetryQueue := queue.New(redisClient, deploymentRetryQueueName, queue.Options{})
+	degradedDispatcher := scheduler.NewDegradedModeDispatcher(nomadClient, deploymentRetryQueue)
+	buildJob := func(deploymentID string, model *db.Model) *nomadAPI.Job {
+		return nomadclient.BuildInferenceJob(nomadclient.InferenceJobSpec{
+			DeploymentID: deploymentID,
+			Image:        defaultInferenceImage,
+			MinVRAMBytes: model.VRAMEstimateFP16Bytes,
+		})
+	}
+	rt.Mux.Handle("POST /v1/dashboard/deployments",
+		browserAuth(api.CreateDeploymentHandler(repos.Deployments, repos.Models, degradedDispatcher, buildJob)))
+	rt.Mux.Handle("GET /v1/dashboard/scheduler/status", browserAuth(api.SchedulerStatusHandler(degradedDispatcher)))
 
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", metricsRegistry.Handler())

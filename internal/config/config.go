@@ -55,6 +55,12 @@ type Config struct {
 	// IdleTimeout is how long a deployment may go without an inference
 	// request before it is eligible for automatic idle termination.
 	IdleTimeout time.Duration `yaml:"idle_timeout"`
+
+	// NomadAddr is the Nomad HTTP API address. Empty uses the Nomad SDK's
+	// own default (http://127.0.0.1:4646). Nomad being unreachable at
+	// this address is a normal, handled condition - see
+	// scheduler.DegradedModeDispatcher - not a startup failure.
+	NomadAddr string `yaml:"nomad_addr"`
 }
 
 func defaults() Config {
