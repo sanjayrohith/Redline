@@ -19,6 +19,11 @@ type ChecksumMismatchError struct {
 	Path string
 	Want string
 	Got  string
+	// QuarantineKey is where the mismatched object was moved for
+	// inspection, set only by CachePipeline.DownloadToCache - other
+	// producers of this error (e.g. DownloadAndVerify's local-disk path)
+	// leave it empty.
+	QuarantineKey string
 }
 
 func (e *ChecksumMismatchError) Error() string {

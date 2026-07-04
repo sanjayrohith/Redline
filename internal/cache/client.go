@@ -129,6 +129,32 @@ func (c *Client) RemoveObject(ctx context.Context, key string) error {
 	return nil
 }
 
+// quarantinePrefix namespaces objects moved aside for operator inspection
+// after failing checksum verification, keeping them out of the normal
+// object-key space so nothing else can be misled into serving one.
+const quarantinePrefix = "quarantine/"
+
+// Quarantine copies key to a quarantine/-prefixed object (for later
+// operator inspection - what actually arrived corrupted, not just that
+// something did) and then removes the original key, so nothing can read
+// a known-corrupted object from its normal location. It returns the
+// quarantined object's key.
+func (c *Client) Quarantine(ctx context.Context, key string) (string, error) {
+	quarantineKey := quarantinePrefix + key
+
+	src := minio.CopySrcOptions{Bucket: c.bucket, Object: key}
+	dst := minio.CopyDestOptions{Bucket: c.bucket, Object: quarantineKey}
+	if _, err := c.minio.CopyObject(ctx, dst, src); err != nil {
+		return "", fmt.Errorf("cache: copy %s to quarantine: %w", key, err)
+	}
+
+	if err := c.RemoveObject(ctx, key); err != nil {
+		return "", fmt.Errorf("cache: purge %s after quarantining: %w", key, err)
+	}
+
+	return quarantineKey, nil
+}
+
 // GetObject opens a streaming reader for key. The caller must close it.
 func (c *Client) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
 	obj, err := c.minio.GetObject(ctx, c.bucket, key, minio.GetObjectOptions{})
