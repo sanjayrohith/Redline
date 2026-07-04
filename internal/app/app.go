@@ -26,11 +26,21 @@ import (
 	"github.com/sanjayrohith/redline/internal/queue"
 	"github.com/sanjayrohith/redline/internal/ratelimit"
 	"github.com/sanjayrohith/redline/internal/redisclient"
+	"github.com/sanjayrohith/redline/internal/resilience"
 	"github.com/sanjayrohith/redline/internal/router"
 	"github.com/sanjayrohith/redline/internal/telemetry"
 )
 
 const ingestionQueueName = "ingestion"
+const retryQueueName = "inference-retry"
+
+// stuckRequestThreshold bounds the gap between two consecutive tokens of
+// a streamed generation before resilience.Watchdog considers it stuck.
+const stuckRequestThreshold = 20 * time.Second
+
+// stuckSweepInterval is how often the stuck-request reaper sweeps for
+// requests past stuckRequestThreshold.
+const stuckSweepInterval = 5 * time.Second
 
 // defaultGPUHourlyRates is a placeholder on-demand pricing table, pending
 // an ops-configured source of truth (a config field or pricing service).
@@ -56,6 +66,7 @@ type App struct {
 	metrics       *metrics.Registry
 	ingestionPool *queue.WorkerPool
 	telemetryHub  *telemetry.Hub
+	stuckReaper   *resilience.Reaper
 }
 
 // gpuSampleInterval is how often the GPU utilization/VRAM gauges refresh
@@ -110,18 +121,32 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	backend := inference.NewMockBackend(cfg.MockBackendTokenDelay)
 	limiter := ratelimit.NewLimiter(redisClient)
-	chatHandler := httpmw.APIKeyAuth(repos.APIKeys)(
-		httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("chat"))(
-			api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
-				MaxSequenceLength: cfg.MaxSequenceLength,
-				GenerationTimeout: cfg.GenerationTimeout,
-				TTFT:              telemetryPublisher,
-				TPOT:              telemetryPublisher,
-				// MockBackend serves at no quantized precision - the
-				// mock exists to exercise the request path in CI, not
-				// to model a real deployment's precision choice.
-				Quantization: "none",
-			}),
+
+	// stuckWatchdog detects a request that has stopped producing tokens
+	// mid-stream - something GenerationTimeout alone cannot, since a
+	// generation that emits its first tokens promptly and then hangs
+	// still has time left on that deadline. stuckRequestThreshold is
+	// deliberately much shorter than a typical GenerationTimeout: it
+	// bounds the gap between tokens, not the whole generation.
+	stuckWatchdog := resilience.NewWatchdog(stuckRequestThreshold)
+	retryQueue := queue.New(redisClient, retryQueueName, queue.Options{})
+	stuckReaper := resilience.NewReaper(stuckWatchdog, backend, retryQueue)
+
+	chatHandler := resilience.Middleware(stuckWatchdog)(
+		httpmw.APIKeyAuth(repos.APIKeys)(
+			httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("chat"))(
+				api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
+					MaxSequenceLength: cfg.MaxSequenceLength,
+					GenerationTimeout: cfg.GenerationTimeout,
+					TTFT:              telemetryPublisher,
+					TPOT:              telemetryPublisher,
+					Watchdog:          stuckWatchdog,
+					// MockBackend serves at no quantized precision - the
+					// mock exists to exercise the request path in CI, not
+					// to model a real deployment's precision choice.
+					Quantization: "none",
+				}),
+			),
 		),
 	)
 	rt.Mux.Handle("POST /v1/chat/completions", chatHandler)
@@ -154,15 +179,18 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	// playground can stream generations against the same backend an API
 	// key client uses, without the browser ever holding an API key.
 	rt.Mux.Handle("POST /v1/dashboard/chat/completions",
-		browserAuth(httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("dashboard-chat"))(
-			api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
-				MaxSequenceLength: cfg.MaxSequenceLength,
-				GenerationTimeout: cfg.GenerationTimeout,
-				TTFT:              telemetryPublisher,
-				TPOT:              telemetryPublisher,
-				Quantization:      "none",
-			}),
-		)),
+		resilience.Middleware(stuckWatchdog)(
+			browserAuth(httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("dashboard-chat"))(
+				api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
+					MaxSequenceLength: cfg.MaxSequenceLength,
+					GenerationTimeout: cfg.GenerationTimeout,
+					TTFT:              telemetryPublisher,
+					TPOT:              telemetryPublisher,
+					Watchdog:          stuckWatchdog,
+					Quantization:      "none",
+				}),
+			)),
+		),
 	)
 
 	rt.Mux.Handle("GET /v1/dashboard/ws/telemetry", browserAuth(telemetry.Handler(telemetryHub)))
@@ -209,6 +237,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		metrics:       metricsRegistry,
 		ingestionPool: ingestionPool,
 		telemetryHub:  telemetryHub,
+		stuckReaper:   stuckReaper,
 	}, nil
 }
 
@@ -324,6 +353,7 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 	go a.ingestionPool.Run(ctx)
 	go telemetry.PublishGPUSamples(ctx, a.telemetryHub, sampleGPUs, gpuSampleInterval)
+	go a.stuckReaper.Run(ctx, stuckSweepInterval)
 
 	a.logger.Info("gateway listening", "addr", a.server.Addr)
 	a.logger.Info("metrics listening", "addr", a.metricsServer.Addr)

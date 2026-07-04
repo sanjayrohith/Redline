@@ -28,6 +28,30 @@ func sseDataLines(t *testing.T, body string) []string {
 	return lines
 }
 
+type spyWatchdog struct {
+	touched []string
+}
+
+func (s *spyWatchdog) Touch(requestID string) {
+	s.touched = append(s.touched, requestID)
+}
+
+func TestChatCompletionsHandler_Stream_TouchesWatchdogOnEveryToken(t *testing.T) {
+	backend := inference.NewMockBackend(0)
+	watchdog := &spyWatchdog{}
+	handler := ChatCompletionsHandler(backend, ChatCompletionsLimits{Watchdog: watchdog})
+
+	body := `{"model":"mock-model","messages":[{"role":"user","content":"hi there"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if len(watchdog.touched) == 0 {
+		t.Fatal("watchdog was never touched during a streamed response with content")
+	}
+}
+
 func TestChatCompletionsHandler_Stream_EmitsChunksThenDone(t *testing.T) {
 	backend := inference.NewMockBackend(0)
 	handler := ChatCompletionsHandler(backend, ChatCompletionsLimits{})

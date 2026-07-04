@@ -34,6 +34,21 @@ type ChatCompletionsLimits struct {
 	// fixed for the handler's lifetime rather than per-request, since a
 	// single backend instance serves one deployment at one precision.
 	Quantization string
+
+	// Watchdog, if non-nil, is touched on every streamed token so a
+	// resilience.Reaper can tell a request that is still producing
+	// tokens apart from one that has silently stalled mid-stream -
+	// something GenerationTimeout alone cannot distinguish, since a
+	// generation that produces its first few tokens promptly and then
+	// hangs still has time left on that deadline.
+	Watchdog WatchdogRecorder
+}
+
+// WatchdogRecorder records that requestID just produced a token.
+// resilience.Watchdog implements this; declared here, narrow, so api does
+// not import the resilience package.
+type WatchdogRecorder interface {
+	Touch(requestID string)
 }
 
 // TTFTRecorder records one request's observed time-to-first-token
@@ -89,7 +104,7 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 		}
 
 		if req.Stream {
-			streamChatCompletion(genCtx, w, backend, requestID, req, admittedAt, limits.TTFT, limits.TPOT, limits.Quantization)
+			streamChatCompletion(genCtx, w, backend, requestID, req, admittedAt, limits.TTFT, limits.TPOT, limits.Watchdog, limits.Quantization)
 			return
 		}
 
@@ -138,7 +153,7 @@ func ChatCompletionsHandler(backend inference.Backend, limits ChatCompletionsLim
 // generation failure has no HTTP status left to report through - the
 // stream simply ends without its normal chunks, which is the same
 // failure signature a client sees for a plain dropped connection.
-func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend inference.Backend, requestID string, req ChatCompletionRequest, admittedAt time.Time, ttft TTFTRecorder, tpot TPOTRecorder, quantization string) {
+func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend inference.Backend, requestID string, req ChatCompletionRequest, admittedAt time.Time, ttft TTFTRecorder, tpot TPOTRecorder, watchdog WatchdogRecorder, quantization string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		apierror.Write(w, http.StatusInternalServerError, apierror.CodeInternal, "streaming not supported", requestID)
@@ -189,6 +204,9 @@ func streamChatCompletion(ctx context.Context, w http.ResponseWriter, backend in
 			}
 			if ev.Content != "" {
 				now := time.Now()
+				if watchdog != nil {
+					watchdog.Touch(requestID)
+				}
 				if !ttftRecorded {
 					if ttft != nil {
 						ttft.ObserveTimeToFirstToken(req.Model, quantization, now.Sub(admittedAt))
