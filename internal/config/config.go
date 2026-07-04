@@ -51,6 +51,10 @@ type Config struct {
 
 	MaxSequenceLength int           `yaml:"max_sequence_length"`
 	GenerationTimeout time.Duration `yaml:"generation_timeout"`
+
+	// IdleTimeout is how long a deployment may go without an inference
+	// request before it is eligible for automatic idle termination.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
 }
 
 func defaults() Config {
@@ -79,6 +83,8 @@ func defaults() Config {
 
 		MaxSequenceLength: 8192,
 		GenerationTimeout: 60 * time.Second,
+
+		IdleTimeout: 15 * time.Minute,
 	}
 }
 

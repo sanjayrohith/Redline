@@ -169,3 +169,15 @@ export interface CreateBenchmarkRunRequest {
 export interface BenchmarkRunListResponse {
   data: BenchmarkRunView[];
 }
+
+export interface SessionCostView {
+  deployment_id: string;
+  gpu_model?: string;
+  hourly_rate_usd?: number;
+  elapsed_seconds: number;
+  cost_usd?: number;
+  projected_hourly_usd?: number;
+  idle_seconds: number;
+  idle_timeout_seconds: number;
+  seconds_until_reap: number;
+}

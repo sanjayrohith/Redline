@@ -13,6 +13,7 @@ import type {
   ModelDetailView,
   CreateBenchmarkRunRequest,
   BenchmarkRunView,
+  SessionCostView,
 } from "./types";
 
 export class APIError extends Error {
@@ -172,6 +173,17 @@ export class GatewayClient {
     });
     if (!res.ok) return this.raise(res);
     return (await res.json()) as BenchmarkRunView;
+  }
+
+  async getSessionCost(id: string): Promise<SessionCostView> {
+    const res = await fetch(`${this.baseURL}/v1/dashboard/deployments/${encodeURIComponent(id)}/session`, {
+      method: "GET",
+      headers: this.headers(),
+      body: undefined,
+      credentials: "include",
+    });
+    if (!res.ok) return this.raise(res);
+    return (await res.json()) as SessionCostView;
   }
 
 }

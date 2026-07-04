@@ -13,6 +13,7 @@ import (
 	"github.com/sanjayrohith/redline/internal/api"
 	"github.com/sanjayrohith/redline/internal/auth"
 	"github.com/sanjayrohith/redline/internal/bench"
+	"github.com/sanjayrohith/redline/internal/billing"
 	"github.com/sanjayrohith/redline/internal/config"
 	"github.com/sanjayrohith/redline/internal/db"
 	"github.com/sanjayrohith/redline/internal/db/migrations"
@@ -30,6 +31,16 @@ import (
 )
 
 const ingestionQueueName = "ingestion"
+
+// defaultGPUHourlyRates is a placeholder on-demand pricing table, pending
+// an ops-configured source of truth (a config field or pricing service).
+// Values are illustrative list prices for the named GPU model, in USD per
+// hour of allocation wall time.
+var defaultGPUHourlyRates = billing.HourlyRates{
+	"A100": 2.50,
+	"H100": 4.50,
+	"L40S": 1.80,
+}
 
 // App holds every dependency the gateway needs to serve traffic and owns
 // the HTTP server's start/stop lifecycle.
@@ -136,6 +147,8 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	// pages - which carry a browser session cookie, not an API key.
 	rt.Mux.Handle("GET /v1/dashboard/models", browserAuth(api.ModelCatalogHandler(repos.Models)))
 	rt.Mux.Handle("GET /v1/dashboard/models/{id}", browserAuth(api.ModelDetailHandler(repos.Models)))
+	rt.Mux.Handle("GET /v1/dashboard/deployments/{id}/session",
+		browserAuth(api.SessionCostHandler(repos.Deployments, defaultGPUHourlyRates, cfg.IdleTimeout)))
 
 	// Session-authed mirror of chat completions, so the dashboard's
 	// playground can stream generations against the same backend an API
