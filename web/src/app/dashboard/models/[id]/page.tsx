@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import Link from "next/link";
 import type { ModelDetailView } from "@/lib/api/types";
 
 function gigabytes(bytes: number): string {
@@ -84,6 +85,10 @@ export default function ModelDetailPage({ params }: { params: Promise<{ id: stri
           </tr>
         </tbody>
       </table>
+
+      <p style={{ marginTop: "1.5rem" }}>
+        <Link href={`/dashboard/benchmarks/${model.id}`}>View benchmark history →</Link>
+      </p>
     </main>
   );
 }
