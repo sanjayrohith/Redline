@@ -93,9 +93,8 @@ func (r *sizedReaderAt) Seek(offset int64, whence int) (int64, error) {
 func TestE2E_FullLifecycle(t *testing.T) {
 	env := setupE2EEnv(t)
 
-	// Nomad is deliberately unreachable: this is exactly the degraded
-	// path step 135 built, and it must be what "schedule" below exercises
-	// by default in a test environment with no Nomad cluster.
+	// Nomad is deliberately unreachable: this exercises the degraded
+	// fallback path by default in a test environment with no Nomad cluster.
 	a := newTestApp(t, env, func(cfg *config.Config) {
 		cfg.NomadAddr = "http://127.0.0.1:1"
 		cfg.IdleTimeout = 20 * time.Millisecond

@@ -87,8 +87,7 @@ func (r *InferenceRunRepository) GetByID(ctx context.Context, id string) (*Infer
 }
 
 // RunTelemetry is the durable per-run summary CompleteWithTelemetry
-// writes: exactly what step 116's execution objective asks for -
-// TTFT, TPOT, token counts, VRAM peak - stored alongside the run's
+// writes: TTFT, TPOT, token counts, VRAM peak, stored alongside the run's
 // already-recorded allocation identity for historical comparison.
 type RunTelemetry struct {
 	PromptTokens     int

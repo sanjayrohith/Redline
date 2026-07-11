@@ -12,8 +12,8 @@ import (
 )
 
 // UnreferencedTagKey is the object tag the reference-counting layer
-// (added in a later step) sets to "true" once an artifact's last live
-// deployment goes away. The lifecycle policy expires anything so tagged.
+// sets to "true" once an artifact's last live deployment goes away.
+// The lifecycle policy expires anything so tagged.
 const UnreferencedTagKey = "redline-unreferenced"
 
 // DefaultUnreferencedExpiryDays bounds how long an unreferenced artifact

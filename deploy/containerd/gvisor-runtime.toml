@@ -16,7 +16,6 @@ version = 2
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc.options]
   TypeUrl = "io.containerd.runsc.v1.options"
   # ConfigPath points at gVisor's own runsc.toml, which carries the
-  # nvproxy and network-isolation flags configured in later steps -
-  # keeping the containerd-level wiring here separate from runsc's own
-  # sandbox policy.
+  # nvproxy and network-isolation flags, keeping the containerd-level
+  # wiring here separate from runsc's own sandbox policy.
   ConfigPath = "/etc/containerd/runsc.toml"

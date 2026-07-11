@@ -79,8 +79,8 @@ isolation boundaries above again from scratch.
 
 The control plane never trusts a worker node's self-reported health as
 sufficient to route traffic to it; readiness is gated on what the
-allocation's own container reports (see the vLLM readiness work in later
-steps), not on the node believing itself healthy.
+allocation's own container reports (see `internal/inference/vllm_readiness.go`),
+not on the node believing itself healthy.
 
 ## Node repaving policy
 

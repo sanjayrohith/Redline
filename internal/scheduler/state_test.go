@@ -17,9 +17,8 @@ func TestValidateTransition_LegalPath(t *testing.T) {
 }
 
 func TestValidateTransition_ProvisioningCanSkipWarmingDirectlyToReady(t *testing.T) {
-	// Phase 2 has no health-check signal yet, so a Nomad "running" status
-	// maps straight to ready; this must remain legal even without an
-	// intermediate warming observation.
+	// When there is no intermediate warming observation, a Nomad "running" status
+	// maps straight to ready; this must remain legal.
 	if err := ValidateTransition(StateProvisioning, StateReady); err != nil {
 		t.Errorf("ValidateTransition(provisioning, ready) error = %v, want nil", err)
 	}
