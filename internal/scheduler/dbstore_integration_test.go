@@ -68,7 +68,7 @@ func TestDBDeploymentStore_CurrentStateAndUpdateState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create model: %v", err)
 	}
-	deployment, err := repos.Deployments.Create(ctx, model.ID)
+	deployment, err := repos.Deployments.Create(ctx, model.ID, "")
 	if err != nil {
 		t.Fatalf("create deployment: %v", err)
 	}

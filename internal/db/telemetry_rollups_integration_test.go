@@ -35,7 +35,7 @@ func TestTelemetryRollupRepository_ComputeModelRollups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create model: %v", err)
 	}
-	deployment, err := repos.Deployments.Create(ctx, model.ID)
+	deployment, err := repos.Deployments.Create(ctx, model.ID, "")
 	if err != nil {
 		t.Fatalf("create deployment: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestTelemetryRollupRepository_ExcludesRunsOutsideTheWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create model: %v", err)
 	}
-	deployment, err := repos.Deployments.Create(ctx, model.ID)
+	deployment, err := repos.Deployments.Create(ctx, model.ID, "")
 	if err != nil {
 		t.Fatalf("create deployment: %v", err)
 	}

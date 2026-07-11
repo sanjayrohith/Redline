@@ -115,6 +115,21 @@ func (r *APIKeyRepository) TouchLastUsed(ctx context.Context, id string) error {
 	return nil
 }
 
+// RevokeAllByUser revokes every currently-active key belonging to userID,
+// returning how many were revoked. Used for immediate account suspension:
+// unlike Revoke, revoking zero keys (a user with none active) is not an
+// error.
+func (r *APIKeyRepository) RevokeAllByUser(ctx context.Context, userID string) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+		userID,
+	)
+	if err != nil {
+		return 0, mapError(err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // Revoke marks an active key revoked. It is a no-op error (ErrNotFound) if
 // the key does not exist or is already revoked.
 func (r *APIKeyRepository) Revoke(ctx context.Context, id string) error {

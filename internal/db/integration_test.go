@@ -142,7 +142,7 @@ func TestRepositories_RoundTrip(t *testing.T) {
 			t.Errorf("duplicate model Create() error = %v, want ErrConflict", err)
 		}
 
-		dep, err := repos.Deployments.Create(ctx, m.ID)
+		dep, err := repos.Deployments.Create(ctx, m.ID, "")
 		if err != nil {
 			t.Fatalf("create deployment: %v", err)
 		}

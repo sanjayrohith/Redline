@@ -18,7 +18,7 @@ type fakeDeploymentCreator struct {
 	nextID  string
 }
 
-func (f *fakeDeploymentCreator) Create(_ context.Context, modelID string) (*db.Deployment, error) {
+func (f *fakeDeploymentCreator) Create(_ context.Context, modelID, _ string) (*db.Deployment, error) {
 	d := &db.Deployment{ID: f.nextID, ModelID: modelID, State: "queued"}
 	f.created = d
 	return d, nil

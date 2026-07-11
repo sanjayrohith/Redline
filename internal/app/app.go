@@ -26,6 +26,7 @@ import (
 	"github.com/sanjayrohith/redline/internal/logging"
 	"github.com/sanjayrohith/redline/internal/metrics"
 	"github.com/sanjayrohith/redline/internal/nomadclient"
+	"github.com/sanjayrohith/redline/internal/policy"
 	"github.com/sanjayrohith/redline/internal/queue"
 	"github.com/sanjayrohith/redline/internal/ratelimit"
 	"github.com/sanjayrohith/redline/internal/redisclient"
@@ -245,6 +246,12 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	rt.Mux.Handle("POST /v1/dashboard/deployments",
 		browserAuth(api.CreateDeploymentHandler(repos.Deployments, repos.Models, degradedDispatcher, buildJob)))
 	rt.Mux.Handle("GET /v1/dashboard/scheduler/status", browserAuth(api.SchedulerStatusHandler(degradedDispatcher)))
+
+	rt.Mux.Handle("POST /v1/dashboard/tos/accept", browserAuth(api.AcceptTOSHandler(repos.Users)))
+
+	suspensionEnforcer := policy.NewEnforcer(repos.Users, repos.APIKeys, repos.Deployments, nomadClient, nomadclient.InferenceJobID)
+	rt.Mux.Handle("POST /v1/admin/users/{id}/suspend",
+		httpmw.APIKeyAuth(repos.APIKeys)(httpmw.RequireScope("admin")(api.SuspendUserHandler(suspensionEnforcer))))
 
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", metricsRegistry.Handler())

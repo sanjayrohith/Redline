@@ -16,7 +16,7 @@ import (
 // CreateDeploymentHandler needs. It is satisfied by
 // *db.DeploymentRepository.
 type DeploymentCreator interface {
-	Create(ctx context.Context, modelID string) (*db.Deployment, error)
+	Create(ctx context.Context, modelID, userID string) (*db.Deployment, error)
 }
 
 // JobDispatcher submits a deployment's Nomad job, degrading to a durable
@@ -68,7 +68,12 @@ func CreateDeploymentHandler(deployments DeploymentCreator, models ModelGetter, 
 			return
 		}
 
-		deployment, err := deployments.Create(r.Context(), req.ModelID)
+		var userID string
+		if principal, ok := httpmw.PrincipalFromContext(r.Context()); ok {
+			userID = principal.UserID
+		}
+
+		deployment, err := deployments.Create(r.Context(), req.ModelID, userID)
 		if err != nil {
 			apierror.WriteStorageError(w, requestID, err)
 			return

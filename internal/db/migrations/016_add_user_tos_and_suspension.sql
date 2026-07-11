@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN tos_accepted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN suspended_at TIMESTAMPTZ;
