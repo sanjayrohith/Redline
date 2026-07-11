@@ -138,6 +138,30 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	backend := inference.NewMockBackend(cfg.MockBackendTokenDelay)
 	limiter := ratelimit.NewLimiter(redisClient)
 
+	nomadClient, err := nomadclient.NewClient(cfg.NomadAddr)
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
+	deploymentRetryQueue := queue.New(redisClient, deploymentRetryQueueName, queue.Options{})
+	degradedDispatcher := scheduler.NewDegradedModeDispatcher(nomadClient, deploymentRetryQueue)
+	suspensionEnforcer := policy.NewEnforcer(repos.Users, repos.APIKeys, repos.Deployments, nomadClient, nomadclient.InferenceJobID)
+
+	// Abuse detection: cadence and prompt-entropy signals guard the chat
+	// routes below; allocation-churn guards deployment creation. Any
+	// flagged signal escalates through abuseEscalator, which cuts the
+	// account's effective rate limit after a few violations and suspends
+	// it outright (via suspensionEnforcer) if the behavior continues.
+	signalLimiter := policy.NewSignalLimiterFunc(func(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+		decision, err := limiter.Allow(ctx, key, limit, window)
+		return decision.Allowed, err
+	})
+	abuseDetector := policy.NewAbuseDetector(signalLimiter, policy.DefaultAbuseThresholds)
+	abuseEscalator := policy.NewEscalator(policy.NewRedisViolationCounter(redisClient), policy.NewRateReductionStore(redisClient), suspensionEnforcer, policy.DefaultEscalationThresholds)
+	rateReductionStore := policy.NewRateReductionStore(redisClient)
+	const reducedChatLimit = 10
+	const reducedChatWindow = time.Minute
+	abuseGuard := policy.AbuseGuardMiddleware(abuseDetector, abuseEscalator, rateReductionStore, reducedChatLimit, reducedChatWindow, signalLimiter)
+
 	// stuckWatchdog detects a request that has stopped producing tokens
 	// mid-stream - something GenerationTimeout alone cannot, since a
 	// generation that emits its first tokens promptly and then hangs
@@ -150,7 +174,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	chatHandler := resilience.Middleware(stuckWatchdog)(
 		httpmw.APIKeyAuth(repos.APIKeys)(
-			httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("chat"))(
+			abuseGuard(httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("chat"))(
 				api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
 					MaxSequenceLength: cfg.MaxSequenceLength,
 					GenerationTimeout: cfg.GenerationTimeout,
@@ -162,7 +186,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 					// to model a real deployment's precision choice.
 					Quantization: "none",
 				}),
-			),
+			)),
 		),
 	)
 	rt.Mux.Handle("POST /v1/chat/completions", chatHandler)
@@ -196,7 +220,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	// key client uses, without the browser ever holding an API key.
 	rt.Mux.Handle("POST /v1/dashboard/chat/completions",
 		resilience.Middleware(stuckWatchdog)(
-			browserAuth(httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("dashboard-chat"))(
+			browserAuth(abuseGuard(httpmw.RateLimit(limiter, cfg.ChatRateLimit, cfg.ChatRateLimitWindow, httpmw.PrincipalRouteKey("dashboard-chat"))(
 				api.ChatCompletionsHandler(backend, api.ChatCompletionsLimits{
 					MaxSequenceLength: cfg.MaxSequenceLength,
 					GenerationTimeout: cfg.GenerationTimeout,
@@ -205,7 +229,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 					Watchdog:          stuckWatchdog,
 					Quantization:      "none",
 				}),
-			)),
+			))),
 		),
 	)
 
@@ -230,12 +254,6 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	)
 	ingestionPool := queue.NewWorkerPool(ingestionQueue, ingestionJobHandler(repos.IngestionJobs, orchestrator), 4, logger)
 
-	nomadClient, err := nomadclient.NewClient(cfg.NomadAddr)
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	deploymentRetryQueue := queue.New(redisClient, deploymentRetryQueueName, queue.Options{})
-	degradedDispatcher := scheduler.NewDegradedModeDispatcher(nomadClient, deploymentRetryQueue)
 	buildJob := func(deploymentID string, model *db.Model) *nomadAPI.Job {
 		return nomadclient.BuildInferenceJob(nomadclient.InferenceJobSpec{
 			DeploymentID: deploymentID,
@@ -243,13 +261,22 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 			MinVRAMBytes: model.VRAMEstimateFP16Bytes,
 		})
 	}
+	allocationChurnGuard := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if principal, ok := httpmw.PrincipalFromContext(r.Context()); ok {
+				if flagged, err := abuseDetector.CheckAllocationChurn(r.Context(), principal.UserID); err == nil && flagged {
+					_, _ = abuseEscalator.RecordViolation(r.Context(), principal.UserID)
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 	rt.Mux.Handle("POST /v1/dashboard/deployments",
-		browserAuth(api.CreateDeploymentHandler(repos.Deployments, repos.Models, degradedDispatcher, buildJob)))
+		browserAuth(allocationChurnGuard(api.CreateDeploymentHandler(repos.Deployments, repos.Models, degradedDispatcher, buildJob))))
 	rt.Mux.Handle("GET /v1/dashboard/scheduler/status", browserAuth(api.SchedulerStatusHandler(degradedDispatcher)))
 
 	rt.Mux.Handle("POST /v1/dashboard/tos/accept", browserAuth(api.AcceptTOSHandler(repos.Users)))
 
-	suspensionEnforcer := policy.NewEnforcer(repos.Users, repos.APIKeys, repos.Deployments, nomadClient, nomadclient.InferenceJobID)
 	rt.Mux.Handle("POST /v1/admin/users/{id}/suspend",
 		httpmw.APIKeyAuth(repos.APIKeys)(httpmw.RequireScope("admin")(api.SuspendUserHandler(suspensionEnforcer))))
 
