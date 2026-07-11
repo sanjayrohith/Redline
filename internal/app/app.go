@@ -93,6 +93,11 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		Logger:      logger,
 		Timeout:     cfg.RequestTimeout,
 		CORSOrigins: cfg.CORSAllowedOrigins,
+		// Streaming SSE responses need a real http.Flusher, which the
+		// Timeout middleware's default response-wrapping does not
+		// provide - see httpmw.Timeout. Both chat completion routes
+		// (API-key and dashboard-session authed) can stream.
+		TimeoutExemptPrefixes: []string{"/v1/chat/completions", "/v1/dashboard/chat/completions"},
 	})
 
 	dbPool, err := db.NewPool(ctx, cfg.DatabaseURL, cfg.DBMaxConns, cfg.DBConnectTimeout)

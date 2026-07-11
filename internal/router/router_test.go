@@ -85,6 +85,48 @@ func TestRouter_EnforcesTimeout(t *testing.T) {
 	}
 }
 
+func TestRouter_ExemptPrefixPreservesFlusher(t *testing.T) {
+	var buf bytes.Buffer
+	rt := New(Config{
+		Logger: testLogger(&buf), Timeout: time.Second, CORSOrigins: []string{"*"},
+		TimeoutExemptPrefixes: []string{"/v1/stream"},
+	})
+
+	var sawFlusher bool
+	rt.Mux.HandleFunc("/v1/stream", func(w http.ResponseWriter, _ *http.Request) {
+		_, sawFlusher = w.(http.Flusher)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	rec := httptest.NewRecorder()
+	rt.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/stream", nil))
+
+	if !sawFlusher {
+		t.Error("handler under an exempt prefix did not receive a ResponseWriter implementing http.Flusher")
+	}
+}
+
+func TestRouter_NonExemptPathLosesFlusherUnderTimeout(t *testing.T) {
+	// Documents the underlying stdlib limitation TimeoutExemptPrefixes
+	// exists to work around: without the exemption, a streaming route's
+	// ResponseWriter does not implement http.Flusher.
+	var buf bytes.Buffer
+	rt := New(Config{Logger: testLogger(&buf), Timeout: time.Second, CORSOrigins: []string{"*"}})
+
+	var sawFlusher bool
+	rt.Mux.HandleFunc("/v1/stream", func(w http.ResponseWriter, _ *http.Request) {
+		_, sawFlusher = w.(http.Flusher)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	rec := httptest.NewRecorder()
+	rt.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/stream", nil))
+
+	if sawFlusher {
+		t.Error("expected the non-exempt route to lose Flusher under the Timeout middleware's wrapping")
+	}
+}
+
 func TestRouter_MiddlewareOrderSurvivesTimeout(t *testing.T) {
 	// A timed-out request must still have received a request id and been
 	// access-logged - proving RequestID and AccessLog wrap Timeout, not

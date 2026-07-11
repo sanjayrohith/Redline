@@ -15,6 +15,11 @@ type Config struct {
 	Logger      *slog.Logger
 	Timeout     time.Duration
 	CORSOrigins []string
+	// TimeoutExemptPrefixes are request path prefixes excluded from the
+	// Timeout middleware's response-wrapping - streaming routes, whose
+	// wrapped ResponseWriter would otherwise lose flushing and silently
+	// break Server-Sent Events. See httpmw.Timeout for why.
+	TimeoutExemptPrefixes []string
 }
 
 // Router holds the raw mux, so handlers can still be registered on it
@@ -33,7 +38,7 @@ func New(cfg Config) *Router {
 
 	var handler http.Handler = mux
 	handler = httpmw.CORS(cfg.CORSOrigins)(handler)
-	handler = httpmw.Timeout(cfg.Timeout)(handler)
+	handler = httpmw.Timeout(cfg.Timeout, cfg.TimeoutExemptPrefixes...)(handler)
 	handler = httpmw.AccessLog(cfg.Logger)(handler)
 	handler = httpmw.RequestID(handler)
 	handler = httpmw.Recovery(cfg.Logger)(handler)

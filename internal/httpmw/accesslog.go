@@ -37,3 +37,17 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.status = code
 	s.ResponseWriter.WriteHeader(code)
 }
+
+// Flush implements http.Flusher by delegating to the wrapped
+// ResponseWriter, if it supports flushing. Without this, embedding
+// http.ResponseWriter only promotes its own three methods - Header,
+// Write, WriteHeader - so a type assertion for http.Flusher against
+// *statusRecorder fails even when the real underlying writer (the one
+// net/http gave the handler before this middleware wrapped it) can
+// flush, silently breaking every streamed response that passes through
+// AccessLog, which every request does.
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
